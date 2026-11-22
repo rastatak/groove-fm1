@@ -139,9 +139,10 @@ static void dv_init(dvoice_t *v, uint32_t vel)
 }
 
 /* silent: muted, or another track soloed and not this one (SOLO: the SMC-Mixer; P_MUTE itself unchanged) */
+static int gv_drum_cut(const track_t *t);              /* groove.c: Groove's RYTHME cut, its solos */
 static int trk_silent(const track_t *t)
 {
-    return t->p[P_MUTE] || (song.solo && !((song.solo >> (uint32_t)(t - trk)) & 1u));
+    return t->p[P_MUTE] || (song.solo && !((song.solo >> (uint32_t)(t - trk)) & 1u)) || gv_drum_cut(t);
 }
 
 /* one hit of track t at velocity vel (1..127), playing note nt (an offset from C4) */

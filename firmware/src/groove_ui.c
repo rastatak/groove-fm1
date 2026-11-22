@@ -39,6 +39,9 @@ static struct {
     uint8_t lock;                   /* FX pads: VERROU (a pad stays on when let go) */
     uint32_t tap[4];                /* TAP TEMPO: the last taps */
     uint32_t wprev;                 /* the white keys held (their release: the pads) */
+    uint16_t rb[8][8];              /* SAVE: 8 rhythms (8 rows of 16 steps), in RAM until power-off */
+    gv_step_t mb[8][16];            /* SAVE: 8 melodies (one track's 16 steps) */
+    uint8_t rbu, mbu, rcur, mcur, bmode;   /* used slots (bits), the last loaded, CHARGER / ENREGISTRER / EFFACER */
 } gu = {.hold_b = NB};
 
 /* ------------------------------------------------------------- colours (the web app's palette, RGB565) --- */
@@ -81,13 +84,13 @@ enum { KN_NONE, KN_TVOL, KN_RVOL, KN_SWING, KN_TAR, KN_RAR, KN_STYLE, KN_GMR, KN
        KN_DIST, KN_DLY, KN_REV, KN_DMIX, KN_DTIME, KN_RSIZE, KN_RDAMP, KN_SNOTE, KN_SLEN, KN_SACC, KN_SOFF, KN_ROW,
        KN_MODEL, KN_RTUNE, KN_RDEC, KN_RDIST, KN_RREV, KN_FX0, KN_FX1, KN_FX2, KN_FX3,
        KN_DJ, KN_MF, KN_HP, KN_MQ, KN_XS, KN_XD, KN_XR, KN_PTG, KN_LOCK, KN_RLP, KN_RRL, KN_TLP, KN_TRL, KN_TBW,
-       KN_DVOL, KN_DDIST, KN_DDLY, KN_DREV, KN_N };
+       KN_DVOL, KN_DDIST, KN_DDLY, KN_DREV, KN_BMODE, KN_KOCT, KN_N };
 static const char *const KN_L[KN_N] = {"", "VOLUME", "VOLUME", "SWING", "AUTO", "AUTO", "STYLE", "RYTHME", "PITCH", "BPM",
     "AUTO RYT", "ACCORDS", "TONIQUE", "GAMME", "CUTOFF", "RESO", "TYPE", "ENV", "ATTAQUE", "DECAY", "GLIDE", "VITESSE",
     "PROFOND.", "FORME", "CALAGE", "ONDE", "OCTAVE", "DISTO", "DELAY", "REVERB", "DLY MIX", "DLY TEMPS", "REV TAILLE",
     "REV DAMP", "NOTE", "DUREE", "ACC SLIDE", "DECALAGE", "LIGNE", "MODELE", "ACCORD", "DECAY", "DISTO", "REVERB", "", "", "", "",
     "FILTRE DJ", "COUPE-HAUT", "COUPE-BAS", "RESO", "DISTO", "ECHO", "REVERB", "CIBLE", "VERROU", "LOOP", "ROLL", "LOOP", "ROLL",
-    "SENS", "VOLUME", "DISTO", "DELAY", "REVERB"};
+    "SENS", "VOLUME", "DISTO", "DELAY", "REVERB", "MODE", "OCT CLAV"};
 static gv_step_t *gv_stp(void) { return &gv_tr()->st[gu.cur & 15u]; }
 static track_t *gv_rt(void) { return &trk[GV_ROWTRK[gv.sel & 7]]; }
 /* ------------------------------------------------------------- FX LIVE: 16 effects on 4 pages, on a target --- */
@@ -205,7 +208,8 @@ static void gv_krange(uint32_t id, int32_t *mn, int32_t *mx)
     case KN_ROW: *mx = 7; break;
     case KN_MODEL: *mx = NMODELS - 1; break;
     case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0, c = gv_fxn(e); *mx = c ? (int32_t)c - 1 : 127; break; }
-    case KN_PTG: *mx = 2; break;
+    case KN_PTG: case KN_BMODE: *mx = 2; break;
+    case KN_KOCT: *mx = 3; break;
     case KN_LOCK: case KN_TBW: *mx = 1; break;
     case KN_RLP: case KN_TLP: *mx = 6; break;
     case KN_RRL: case KN_TRL: *mx = 3; break;
@@ -235,7 +239,7 @@ static int32_t gv_kget(uint32_t id)
     case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0; return gv_fxn(e) ? gv_fxix(e) : gv_fxget(e); }
     case KN_DJ: return gv.hp ? 64 + gv.hp / 2 : gv.mf >= 127u ? 64 : gv.mf / 2;
     case KN_MF: return gv.mf; case KN_HP: return gv.hp; case KN_MQ: return gv.mq; case KN_XS: return gv.xs;
-    case KN_XD: return gv.xd; case KN_XR: return gv.xr; case KN_PTG: return gv_ptg; case KN_LOCK: return gu.lock;
+    case KN_XD: return gv.xd; case KN_XR: return gv.xr; case KN_PTG: return gv_ptg; case KN_LOCK: return gu.lock; case KN_BMODE: return gu.bmode; case KN_KOCT: return gv.oct;
     case KN_RLP: return gv_lpix(gv.rlp[gv.sel & 7]); case KN_RRL: return gv_rlix(gv.rrl[gv.sel & 7]);
     case KN_TLP: return gv_lpix(t->lp); case KN_TRL: return gv_rlix(t->rl); case KN_TBW: return t->bw;
     case KN_DVOL: case KN_DDIST: case KN_DDLY: case KN_DREV: {
@@ -285,7 +289,7 @@ static void gv_kset(uint32_t id, int32_t v)
         break;
     case KN_MF: gv.mf = (uint8_t)v; break; case KN_HP: gv.hp = (uint8_t)v; break; case KN_MQ: gv.mq = (uint8_t)v; break;
     case KN_XS: gv.xs = (uint8_t)v; break; case KN_XD: gv.xd = (uint8_t)v; break; case KN_XR: gv.xr = (uint8_t)v; break;
-    case KN_PTG: gv_ptg = (uint8_t)v; break; case KN_LOCK: gu.lock = (uint8_t)v; break;
+    case KN_PTG: gv_ptg = (uint8_t)v; break; case KN_LOCK: gu.lock = (uint8_t)v; break; case KN_BMODE: gu.bmode = (uint8_t)v; break; case KN_KOCT: gv.oct = (uint8_t)v; break;
     case KN_RLP: gv.rlp[gv.sel & 7] = GV_LPV[v % 7]; break; case KN_RRL: gv.rrl[gv.sel & 7] = GV_RLV[v & 3]; break;
     case KN_TLP: t->lp = GV_LPV[v % 7]; break; case KN_TRL: t->rl = GV_RLV[v & 3]; break; case KN_TBW: t->bw = (uint8_t)v; break;
     case KN_DVOL: case KN_DDIST: case KN_DDLY: case KN_DREV: {
@@ -321,9 +325,10 @@ static void gv_kfmt(uint32_t id, int32_t v, char *b)
     case KN_BPM: case KN_OCT: gv_fmt(b, "%d", (int)v); return;
     case KN_SWING: gv_fmt(b, "%d%%", (int)v); return;
     case KN_DJ: if (v == 64) { gv_fmt(b, "OUVERT"); } else if (v < 64) { gv_fmt(b, "GRAVE %d", (int)(64 - v)); } else gv_fmt(b, "AIGU %d", (int)(v - 64)); return;
-    case KN_MF: if (v >= 127) { gv_fmt(b, "OUVERT"); return; } break;
-    case KN_HP: if (!v) { gv_fmt(b, "OUVERT"); return; } break;
+    case KN_MF: if (v >= 127) { gv_fmt(b, "OUVERT"); } else gv_fmt(b, "%d%%", (int)(v * 100 / 127)); return;
+    case KN_HP: if (!v) { gv_fmt(b, "OUVERT"); } else gv_fmt(b, "%d%%", (int)(v * 100 / 127)); return;
     case KN_PTG: { static const char *const T[3] = {"TOUT", "RYTHME", "MELODIE"}; gv_fmt(b, "%s", T[v % 3]); return; }
+    case KN_BMODE: { static const char *const T[3] = {"CHARGER", "ENREGISTR.", "EFFACER"}; gv_fmt(b, "%s", T[v % 3]); return; }
     case KN_LOCK: case KN_TBW: gv_fmt(b, id == KN_TBW ? (v ? "ARRIERE" : "AVANT") : (v ? "ON" : "OFF")); return;
     case KN_RLP: case KN_TLP: if (v) { gv_fmt(b, "%d PAS", (int)GV_LPV[v % 7]); } else gv_fmt(b, "OFF"); return;
     case KN_RRL: case KN_TRL: if (v) { gv_fmt(b, "X%d", (int)GV_RLV[v & 3]); } else gv_fmt(b, "OFF"); return;
@@ -344,9 +349,9 @@ static void gv_knobs(uint8_t *k)
     k[0] = k[1] = k[2] = k[3] = KN_NONE;
 #define K4(a, b, c, e) do { k[0] = a; k[1] = b; k[2] = c; k[3] = e; } while (0)
     switch (gu.page) {                                 /* = the web app's pages (fm1.js PAGES) */
-    case GP_LIVE: K4(d ? KN_RVOL : KN_TVOL, KN_DJ, KN_SWING, d ? KN_RAR : KN_TAR); break;
-    case GP_LRYT: K4(KN_RVOL, KN_RAR, KN_STYLE, KN_GMR); break;
-    case GP_LMEL: K4(KN_TVOL, KN_TAR, KN_PITCH, KN_WAVE); break;
+    case GP_LIVE: K4(d ? KN_RVOL : KN_TVOL, KN_DJ, KN_SWING, gu.kp ? KN_KOCT : d ? KN_RAR : KN_TAR); break;
+    case GP_LRYT: K4(KN_RVOL, KN_RAR, KN_STYLE, gu.kp ? KN_KOCT : KN_GMR); break;
+    case GP_LMEL: K4(KN_TVOL, KN_TAR, KN_PITCH, gu.kp ? KN_KOCT : KN_WAVE); break;
     case GP_LFX: K4(KN_FX0, KN_FX1, KN_FX2, KN_FX3); break;
     case GP_RYT: K4(KN_ROW, KN_RVOL, KN_RLP, KN_RRL); break;
     case GP_MEL: K4(KN_SNOTE, KN_SLEN, KN_SACC, KN_SOFF); break;
@@ -368,6 +373,7 @@ static void gv_knobs(uint8_t *k)
     case GP_LRR: if (d) K4(KN_RLP, KN_RRL, KN_ROW, KN_RAR); else K4(KN_TLP, KN_TRL, KN_TBW, KN_TAR); break;
     case GP_SON: if (d) K4(KN_MODEL, KN_RTUNE, KN_RDEC, KN_RVOL); else K4(KN_WAVE, KN_OCT, KN_CUT, KN_DEC); break;
     case GP_GLO: K4(KN_BPM, KN_SWING, KN_STYLE, KN_AUTO); break;
+    case GP_SAVE: K4(KN_BMODE, KN_STYLE, KN_AUTO, KN_NONE); break;
     default: break;
     }
     if (!d && gu.page == GP_RYT) gv.sel = 0;
@@ -478,6 +484,68 @@ static void gv_tap(void)                               /* TAP TEMPO: the mean of
     } else gv_say("TAP : ENCORE");
 }
 
+/* ------------------------------------------------------------- PRESETS on LIVE: the row's family of sounds --- */
+/* drums: Hortator's factory presets whose voice is of the row's family (the web app's folders: KICK, SNARE, CLAP...) */
+static const uint8_t GV_FAM[8][8] = {
+    {DM_KTRX, DM_KPUNC, DM_KBOOM, DM_K909, DM_K808, DM_BDEFM, DM_B2TRX, 0xFF},   /* KICK */
+    {DM_SDTRX, DM_SSNAP, DM_S909, DM_S808, DM_SCRAK, DM_SDEFM, 0xFF, 0xFF},       /* SNARE */
+    {DM_CPTRX, DM_CPEFM, DM_C909, DM_C808, 0xFF, 0xFF, 0xFF, 0xFF},               /* CLAP */
+    {DM_HATC, DM_CHTRX, DM_HHEFM, DM_HNOIS, DM_HMETL, 0xFF, 0xFF, 0xFF},          /* HAT F. */
+    {DM_HATO, DM_OHTRX, DM_CYMB, DM_CYTRX, DM_CYEFM, DM_HMETL, 0xFF, 0xFF},       /* HAT O. (and the cymbals) */
+    {DM_CONGA, DM_CLAVE, DM_COWB, DM_CBTRX, DM_CBEFM, DM_MEMB, DM_FM, DM_XCTRX},  /* PERC */
+    {DM_TOM, DM_XTTRX, DM_XTEFM, DM_MEMB, DM_ACID, 0xFF, 0xFF, 0xFF},             /* LOW */
+    {DM_RIM, DM_RSTRX, DM_RSEFM, DM_CLAVE, 0xFF, 0xFF, 0xFF, 0xFF}};              /* RIM */
+static int gv_infam(uint32_t row, uint32_t model) { uint32_t k; for (k = 0; k < 8u; k++) if (GV_FAM[row][k] == model) return 1; return 0; }
+/* melody: the synth's sounds, each for the tracks it suits (bit GT_*) */
+typedef struct { const char *n; uint8_t ty, wave, oct, cut, res, env, att, dec, lfd, lfr, dist; } gv_snd_t;
+static const gv_snd_t GV_SND[] = {
+    {"SUB", 1u << GT_BASS, GW_TRI, 2, 40, 10, 20, 0, 50, 0, 38, 0},
+    {"ACID", 1u << GT_BASS, GW_SAW, 2, 45, 100, 100, 0, 30, 0, 38, 20},
+    {"REESE", 1u << GT_BASS, GW_SAW, 2, 55, 30, 30, 0, 70, 40, 20, 10},
+    {"PLUCK BASS", 1u << GT_BASS, GW_SQR, 2, 50, 60, 80, 0, 20, 0, 38, 0},
+    {"DUB", 1u << GT_BASS, GW_TRI, 2, 35, 20, 40, 10, 90, 20, 10, 30},
+    {"LEAD SCIE", 1u << GT_SYNTH, GW_SAW, 4, 80, 40, 60, 0, 50, 0, 38, 10},
+    {"CARRE", 1u << GT_SYNTH, GW_SQR, 4, 70, 30, 50, 0, 40, 0, 38, 0},
+    {"PLUCK", (1u << GT_SYNTH) | (1u << GT_FX), GW_SAW, 5, 60, 70, 100, 0, 15, 0, 38, 0},
+    {"WOBBLE", (1u << GT_SYNTH) | (1u << GT_BASS), GW_SAW, 3, 50, 90, 30, 0, 60, 100, 70, 20},
+    {"CLOCHE", (1u << GT_SYNTH) | (1u << GT_FX), GW_TRI, 5, 110, 20, 40, 0, 25, 0, 38, 0},
+    {"PAD", 1u << GT_PAD, GW_SAW, 4, 64, 45, 30, 90, 110, 30, 15, 0},
+    {"CORDES", 1u << GT_PAD, GW_SAW, 4, 75, 20, 20, 70, 100, 20, 30, 0},
+    {"PAD SOMBRE", 1u << GT_PAD, GW_TRI, 3, 40, 60, 20, 100, 120, 40, 10, 0},
+    {"AIR", (1u << GT_PAD) | (1u << GT_FX), GW_SQR, 5, 100, 80, 10, 110, 127, 60, 20, 0},
+    {"LASER", 1u << GT_FX, GW_SQR, 5, 90, 110, 127, 0, 20, 0, 38, 40},
+    {"SIRENE", 1u << GT_FX, GW_SAW, 4, 70, 70, 20, 30, 80, 127, 50, 0}};
+#define GV_NSND (sizeof GV_SND / sizeof GV_SND[0])
+static uint8_t gv_sndcur[GV_NT];
+static void gv_preset_turn(int32_t s)                  /* PRESETS on a LIVE page: the next / previous sound of the family */
+{
+    char m[32];
+    if (gv_isd()) {
+        uint32_t r = (uint32_t)gv.sel & 7u, n = 0, k, cur = 0xFFFFu, ids[64];
+        track_t *tr = &trk[GV_ROWTRK[r]];
+        uint32_t pre = preset_of(tr);
+        for (k = 0; k < PRE_NFACT && n < 64u; k++) if (gv_infam(r, PRE_FACTORY[k].model)) { if (k == pre) cur = n; ids[n++] = k; }
+        if (!n) return;
+        k = cur == 0xFFFFu ? (s > 0 ? 0u : n - 1u) : (uint32_t)(((int32_t)cur + s) % (int32_t)n + (int32_t)n) % n;
+        preset_load(tr, ids[k]);
+        { char nm[10]; preset_name_of(ids[k], nm); gv_fmt(m, "%s %d/%d : %s", GV_ROWN[r], (int)k + 1, (int)n, nm); }
+        drum_hit(tr, 100);
+    } else {
+        uint32_t i = (uint32_t)gv.sel - 8u, ty = GV_TTYPE[i], n = 0, k, ids[GV_NSND], cur = 0;
+        gv_trk_t *t = &gv.t[i];
+        const gv_snd_t *d;
+        for (k = 0; k < GV_NSND; k++) if ((GV_SND[k].ty >> ty) & 1u) { if (k == gv_sndcur[i]) cur = n; ids[n++] = k; }
+        if (!n) return;
+        k = ids[(uint32_t)(((int32_t)cur + s) % (int32_t)n + (int32_t)n) % n];
+        gv_sndcur[i] = (uint8_t)k;
+        d = &GV_SND[k];
+        t->wave = d->wave; t->oct = d->oct; t->cut = d->cut; t->res = d->res; t->env = d->env; t->att = d->att; t->dec = d->dec;
+        t->lfd = d->lfd; t->lfr = d->lfr; t->dist = d->dist;
+        gv_fmt(m, "%s : %s", GV_TRN[i], d->n);
+    }
+    gv_say(m);
+}
+
 /* ------------------------------------------------------------- pages: the white keys --- */
 static int gv_live_page(void) { return gu.page <= GP_LMEL; }
 static void gv_white(uint32_t j, int down)
@@ -528,6 +596,20 @@ static void gv_white(uint32_t j, int down)
         if (j < 3u) t->wave = (uint8_t)j; else if (j >= 4u && j < 10u) t->oct = (uint8_t)(j - 3u); else if (j >= 13u) t->ftype = (uint8_t)(j - 13u);
         break;
     case GP_MIX: case GP_LRR: gv_lrr_key(j); break;
+    case GP_SAVE: {                                   /* keys 1-8 the rhythms, 9-16 the melodies (of the shown track) */
+        uint32_t k = j & 7u, mel = j >= 8u, used = ((mel ? gu.mbu : gu.rbu) >> k) & 1u, r;
+        char m[28];
+        if (gu.bmode == 2u) { if (mel) gu.mbu &= (uint8_t)~(1u << k); else gu.rbu &= (uint8_t)~(1u << k); gv_say("EMPLACEMENT EFFACE"); }
+        else if (gu.bmode == 1u || !used) {           /* save (an empty slot saves even in CHARGER) */
+            if (mel) { memcpy(gu.mb[k], gv_isd() ? gv.t[0].st : t->st, sizeof gu.mb[k]); gu.mbu |= (uint8_t)(1u << k); gu.mcur = (uint8_t)k; }
+            else { for (r = 0; r < 8u; r++) gu.rb[k][r] = gv_rhythm_row_get(r); gu.rbu |= (uint8_t)(1u << k); gu.rcur = (uint8_t)k; }
+            gv_fmt(m, "%s %d ENREGISTRE", mel ? "MELODIE" : "RYTHME", (int)k + 1); gv_say(m);
+        } else {                                      /* load */
+            if (mel) { memcpy(gv_isd() ? gv.t[0].st : t->st, gu.mb[k], sizeof gu.mb[k]); gu.mcur = (uint8_t)k; }
+            else { for (r = 0; r < 8u; r++) gv_rhythm_row_set(r, gu.rb[k][r]); gu.rcur = (uint8_t)k; gv.tpl = 0; }
+            gv_fmt(m, "%s %d CHARGE", mel ? "MELODIE" : "RYTHME", (int)k + 1); gv_say(m);
+        }
+        break; }
     case GP_FXR: gv_fxr_cut(j); break;
     case GP_VIS:
         if (j == 0u) { gv_gen_rhythm(); gv_say("NOUVEAU RYTHME"); }
@@ -627,6 +709,10 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
             if (lp) { gu.hold_b = (uint8_t)b; gu.hold_t0 = fm1_ms; gu.hold_done = 0; continue; }
             if (b == B_PLAY) play_press();
             else if (b == B_REC) { gv_recq ^= 1u; gv_say(gv_recq ? "REC : LES TOUCHES NOIRES ECRIVENT" : "REC COUPE"); }
+            else if ((b == B_OCTDN || b == B_OCTUP) && (gv_live_page() || gu.page == GP_LFX)) {   /* LIVE: OCT- the rhythm, OCT+ the melody */
+                gv.gmute ^= b == B_OCTDN ? 1u : 2u;
+                gv_say(b == B_OCTDN ? ((gv.gmute & 1u) ? "RYTHME COUPE" : "RYTHME RETABLI") : ((gv.gmute & 2u) ? "MELODIE COUPEE" : "MELODIE RETABLIE"));
+            }
             else if (b == B_OCTDN) { if (gv.oct > 0) gv.oct--; }
             else if (b == B_OCTUP) { if (gv.oct < 3) gv.oct++; }
             else gv_go(b);
@@ -660,7 +746,8 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
         }
     if ((s = panel_enc(EN_SELECT)) != 0) { gv_select(s); gu.dirty = 1; }
     if ((s = panel_enc(EN_PRESET)) != 0) {
-        if (gu.page == GP_RYT || gu.page == GP_LRYT || gu.page == GP_GRYT) gv.sel = (int8_t)(((gv.sel & 7) + s + 8) % 8);
+        if (gv_live_page() || gu.page == GP_SON) gv_preset_turn(s > 0 ? 1 : -1);
+        else if (gu.page == GP_RYT || gu.page == GP_LRYT || gu.page == GP_GRYT) gv.sel = (int8_t)(((gv.sel & 7) + s + 8) % 8);
         else if (gu.page == GP_MEL || gu.page == GP_LMEL || gu.page == GP_GMEL) gv.sel = (int8_t)(8 + ((gv.sel - 8 + s) % 6 + 6) % 6);
         else gv.sel = (int8_t)(((gv.sel + s) % 14 + 14) % 14);
         gu.dirty = 1;
@@ -759,6 +846,238 @@ static void gv_draw_foot(void)
         G_TC(cx, 216, 1, kn[i] >= KN_FX0 && kn[i] <= KN_FX3 ? (gu.fxt == 0u && FE_LD[gu.fxpg * 4u + i] ? FE_LD[gu.fxpg * 4u + i] : FE_L[gu.fxpg * 4u + i]) : KN_L[kn[i]], GC_M);
         gv_kfmt(kn[i], v, b);
         G_TC(cx, G_TW(2, b) > 58 ? 228 : 226, G_TW(2, b) > 58 ? 1u : 2u, b, GC_T);
+    }
+}
+/* ------------------------------------------------------------- the web app's page pictures, in pixels --- */
+static void G_L(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c) { cv_line(x0, y0 - gv_oy, x1, y1 - gv_oy, c); }
+static void G_L2(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c) { G_L(x0, y0, x1, y1, c); G_L(x0, y0 + 1, x1, y1 + 1, c); }
+static void G_C(int32_t cx, int32_t cy, int32_t r, uint16_t c) { if (r > 0) cv_ring(cx, cy - gv_oy, r, c); }
+static int32_t gv_isqrt(int32_t v) { int32_t r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
+static void G_D(int32_t cx, int32_t cy, int32_t r, uint16_t c)           /* a disc */
+{
+    int32_t dy;
+    for (dy = -r; dy <= r; dy++) { int32_t w = gv_isqrt(r * r - dy * dy); G_R(cx - w, cy + dy, 2 * w + 1, 1, c); }
+}
+static void G_TRI(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t c)   /* a filled triangle */
+{
+    int32_t y, mn = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2), mx = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
+    const int32_t X[3] = {x0, x1, x2}, Y[3] = {y0, y1, y2};
+    for (y = mn; y <= mx; y++) {
+        int32_t a = 9999, b = -9999, k;
+        for (k = 0; k < 3; k++) {
+            int32_t xa = X[k], ya = Y[k], xb = X[(k + 1) % 3], yb = Y[(k + 1) % 3];
+            if ((y >= ya && y <= yb) || (y >= yb && y <= ya)) {
+                int32_t x = ya == yb ? xa : xa + (xb - xa) * (y - ya) / (yb - ya);
+                if (x < a) a = x;
+                if (x > b) b = x;
+                if (ya == yb) { if (xb < a) a = xb; if (xb > b) b = xb; }
+            }
+        }
+        if (b >= a) G_R(a, y, b - a + 1, 1, c);
+    }
+}
+static uint16_t gv_mix565(uint16_t a, uint16_t b, int32_t k)              /* k 0..16: a -> b */
+{
+    int32_t r = ((a >> 11) * (16 - k) + (b >> 11) * k) / 16, g = (((a >> 5) & 63) * (16 - k) + ((b >> 5) & 63) * k) / 16,
+            bl = ((a & 31) * (16 - k) + (b & 31) * k) / 16;
+    return (uint16_t)((r << 11) | (g << 5) | bl);
+}
+/* (RGB() swaps for the panel: the sky mixes plain 565 then the same swap as RGB) */
+#define P565(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
+static uint16_t gv_sw(uint16_t c) { return RGB(((c >> 11) << 3), (((c >> 5) & 63) << 2), ((c & 31) << 3)); }
+static void G_SKY(int32_t y0, int32_t h, uint16_t top, uint16_t bot)     /* a vertical gradient (8 bands) */
+{
+    int32_t k;
+    for (k = 0; k < 8; k++) G_R(0, y0 + h * k / 8, 240, h / 8 + 1, gv_sw(gv_mix565(top, bot, k * 16 / 7)));
+}
+static uint32_t gv_beatq(void)                       /* 0..255 within the beat (the tempo when stopped too) */
+{
+    uint32_t bpm = (uint32_t)gv_clamp(song.g[G_BPM], 40, 240), per = 60000u / bpm;
+    return (fm1_ms % per) * 256u / per;
+}
+/* the A4E monster (3 legs, 2 tentacle hands, the eye, the headphones), u = pixel size; it dances on the beat */
+static void gv_mon(int32_t cx, int32_t by, int32_t u)
+{
+    uint32_t q = gv_beatq(), bt = song.playing ? (uint32_t)(gv_pos >> 2) & 3u : (fm1_ms / 600u) & 3u;
+    int32_t hop = (int32_t)(q < 128u ? (128 - (int32_t)q) * 3 * u / 128 : 0), y = by - hop, k;
+    uint16_t o = RGB(0xf0, 0x80, 0x30), od = RGB(0xb8, 0x56, 0x1c), ink = RGB(0x11, 0x11, 0x11);
+    G_R(cx - 9 * u, by + 1, 18 * u, u, RGB(0x10, 0x10, 0x10));              /* shadow */
+    for (k = -1; k <= 1; k++) {                                              /* legs: one lifts after the other */
+        int32_t lift = (int32_t)((bt + 4u + (uint32_t)k) % 3u) == 0 ? 2 * u : 0;
+        G_R(cx + k * 4 * u - u - u / 2, y - 6 * u - lift, 3 * u, 6 * u, ink);
+        G_R(cx + k * 4 * u - u, y - 6 * u - lift, 2 * u, 6 * u - u / 2, o);
+    }
+    {   /* hands: the outer tentacles, up and down with the beat */
+        int32_t l = bt == 1u || bt == 3u ? 1 : 0, r = bt == 2u || bt == 3u ? 1 : 0;
+        G_R(cx - 10 * u, y - (l ? 16 : 9) * u, 3 * u, 7 * u, ink); G_R(cx - 10 * u + u / 2, y - (l ? 16 : 9) * u + u / 2, 2 * u, 6 * u, o);
+        G_R(cx + 7 * u, y - (r ? 16 : 9) * u, 3 * u, 7 * u, ink); G_R(cx + 7 * u + u / 2, y - (r ? 16 : 9) * u + u / 2, 2 * u, 6 * u, o);
+    }
+    G_R(cx - 7 * u - 1, y - 20 * u - 1, 14 * u + 2, 15 * u + 2, ink);       /* body */
+    G_D(cx, y - 20 * u, 7 * u + 1, ink);
+    G_R(cx - 7 * u, y - 20 * u, 14 * u, 15 * u, o);
+    G_D(cx, y - 20 * u, 7 * u, o);
+    G_R(cx + 4 * u, y - 22 * u, 3 * u, 16 * u, od);                          /* the shaded side */
+    G_D(cx, y - 19 * u, 4 * u, ink); G_D(cx, y - 19 * u, 3 * u + u / 2, RGB(0xff, 0xff, 0xff));   /* the eye */
+    G_D(cx, y - 19 * u, 2 * u, RGB(0x7c, 0xc2, 0x42)); G_D(cx, y - 19 * u, u, ink); G_R(cx + u / 2, y - 20 * u, u > 1 ? u / 2 + 1 : 1, u > 1 ? u / 2 + 1 : 1, RGB(0xff, 0xff, 0xff));
+    G_R(cx - 4 * u, y - 13 * u, 8 * u, 2 * u + (q < 96u && song.playing ? u : 0), ink);   /* the mouth opens on the beat */
+    G_R(cx - 3 * u, y - 13 * u, u, u, RGB(0xff, 0xff, 0xff)); G_R(cx + 2 * u, y - 13 * u, u, u, RGB(0xff, 0xff, 0xff));
+    G_R(cx - 8 * u, y - 23 * u, 2 * u, 5 * u, RGB(0x8a, 0x0d, 0x1e)); G_R(cx + 6 * u, y - 23 * u, 2 * u, 5 * u, RGB(0x8a, 0x0d, 0x1e));   /* headphones */
+    G_R(cx - 6 * u, y - 28 * u, 12 * u, u, GC_L); G_R(cx - 7 * u, y - 27 * u, u, 4 * u, GC_L); G_R(cx + 6 * u, y - 27 * u, u, 4 * u, GC_L);
+}
+/* the 6 scales' scenes (the web app's scenes.js), y0..y0+h */
+static void gv_scene(uint32_t sc, int32_t y0, int32_t h)
+{
+    int32_t k, ms = (int32_t)fm1_ms, q = (int32_t)gv_beatq();
+    switch (sc % GV_NSC) {
+    case 0:   /* MINEUR: the city at night, the moon, lit windows */
+        G_SKY(y0, h, P565(0x0b, 0x10, 0x20), P565(0x1c, 0x21, 0x40));
+        G_D(196, y0 + 20, 10, RGB(0xe8, 0xe6, 0xd8)); G_D(201, y0 + 17, 9, RGB(0x10, 0x14, 0x26));
+        { static const int8_t B[11][2] = {{0, 50}, {22, 70}, {40, 42}, {62, 82}, {86, 58}, {108, 90}, {128, 48}, {150, 74}, {172, 62}, {196, 86}, {218, 54}};
+          for (k = 0; k < 11; k++) {
+              int32_t H = B[k][1] * h / 110, x = B[k][0], wy;
+              G_R(x, y0 + h - H, 24, H, k & 1 ? RGB(0x15, 0x1a, 0x2c) : RGB(0x1a, 0x20, 0x36));
+              for (wy = y0 + h - H + 4; wy < y0 + h - 4; wy += 7) {
+                  int32_t wx;
+                  for (wx = x + 3; wx < x + 21; wx += 6) if (((wx * 7 + wy * 3 + ms / 900) % 5) < 2) G_R(wx, wy, 3, 3, RGB(0xff, 0xd2, 0x3f));
+              }
+          } }
+        break;
+    case 1:   /* PHRYGIEN: the desert, the pyramids, the sun going down */
+        G_SKY(y0, h, P565(0xff, 0x8a, 0x1f), P565(0xe8, 0xb4, 0x5a));
+        G_D(120, y0 + h * 62 / 100, 20, RGB(0xff, 0xf3, 0xc4));
+        { int32_t gy = y0 + h * 82 / 100;
+          G_TRI(48 - 44, gy, 48, gy - 42, 48 + 44, gy, RGB(0xc9, 0x8a, 0x3a)); G_TRI(48, gy - 42, 92, gy, 58, gy, RGB(0xa0, 0x6a, 0x2a));
+          G_TRI(100 - 30, gy, 100, gy - 28, 130, gy, RGB(0xb9, 0x7a, 0x2e));
+          G_TRI(206 - 38, gy, 206, gy - 36, 244, gy, RGB(0xc9, 0x8a, 0x3a)); G_TRI(206, gy - 36, 244, gy, 214, gy, RGB(0xa0, 0x6a, 0x2a));
+          G_R(0, gy, 240, y0 + h - gy, RGB(0xd9, 0xa0, 0x4e));
+          for (k = 0; k < 5; k++) G_R((k * 53 + ms / 40) % 240, gy + 4 + (k % 3) * 4, 10, 1, RGB(0xf0, 0xc0, 0x70)); }
+        break;
+    case 2:   /* DORIEN: the club, the spot lights, the mirror ball */
+        G_R(0, y0, 240, h, RGB(0x16, 0x0b, 0x26));
+        for (k = 0; k < 5; k++) {
+            int32_t sw = gv_sin((uint32_t)(ms / 12 + k * 50) & 255u) * 40 / 127, x = 24 + k * 48;
+            uint16_t c = k % 3 == 0 ? RGB(0x6a, 0x3a, 0x20) : k % 3 == 1 ? RGB(0x1a, 0x5a, 0x50) : RGB(0x6a, 0x40, 0x5a);
+            G_TRI(x, y0, x + sw - 14, y0 + h, x + sw + 14, y0 + h, c);
+        }
+        G_L(120, y0, 120, y0 + 8, GC_M);
+        { int32_t i, j;
+          for (i = -3; i <= 3; i++) for (j = -3; j <= 3; j++) {
+              if (i * i + j * j > 10) continue;
+              G_R(120 + i * 4 - 2, y0 + 20 + j * 4 - 2, 3, 3, gv_sin((uint32_t)(i * 37 + j * 23 + ms / 6) & 255u) > 40 ? GC_T : RGB(0x8a, 0x94, 0xa6));
+          } }
+        G_R(0, y0 + h - 10, 240, 10, RGB(0x26, 0x14, 0x3a));
+        for (k = 0; k < 12; k++) G_R(k * 20, y0 + h - 10, 18, 9, ((k + (ms / 250)) & 1) ? RGB(0xff, 0x46, 0x9a) : RGB(0x35, 0xe3, 0xc4));
+        break;
+    case 3:   /* MINEUR HARMONIQUE: the stars, the hills, the moon */
+        G_SKY(y0, h, P565(0x1b, 0x12, 0x38), P565(0x6b, 0x3a, 0x5a));
+        for (k = 0; k < 30; k++) if (gv_sin((uint32_t)(ms / 8 + k * 40) & 255u) > -40) G_R((k * 67) % 240, y0 + (k * 29) % (h * 55 / 100), 1, 1, GC_T);
+        G_D(43, y0 + h * 22 / 100, 10, RGB(0xff, 0xe9, 0xa6)); G_D(47, y0 + h * 22 / 100 - 2, 9, RGB(0x1f, 0x14, 0x3c));
+        for (k = 0; k < 240; k += 4) { int32_t hy = y0 + h * 78 / 100 + gv_sin((uint32_t)(k * 2) & 255u) * 5 / 127; G_R(k, hy, 4, y0 + h - hy, RGB(0x3a, 0x21, 0x40)); }
+        break;
+    case 4:   /* PENTA MINEURE: the pink sky, the red sun, the mountain */
+        G_SKY(y0, h, P565(0xff, 0xb3, 0xdc), P565(0xff, 0xe9, 0xd6));
+        G_D(173, y0 + h * 30 / 100, 14, RGB(0xff, 0x46, 0x46));
+        { int32_t gy = y0 + h * 82 / 100, ty = y0 + h * 28 / 100;
+          G_TRI(19, gy, 96, ty, 115, ty, RGB(0x5b, 0x6b, 0x8c)); G_TRI(19, gy, 115, ty, 197, gy, RGB(0x5b, 0x6b, 0x8c));
+          G_TRI(80, ty + 14, 96, ty, 115, ty, GC_T); G_TRI(96, ty, 115, ty, 134, ty + 15, GC_T);
+          G_R(0, gy, 240, y0 + h - gy, RGB(0x8a, 0xc0, 0x7a));
+          for (k = 0; k < 6; k++) { int32_t px = (k * 47 + ms / 30) % 260 - 10, py = y0 + 10 + (k * 13) % 40 + gv_sin((uint32_t)(ms / 6 + k * 60) & 255u) * 4 / 127; G_R(px, py, 3, 2, RGB(0xff, 0x8a, 0xc8)); } }
+        break;
+    default:  /* MAJEUR: the blue sky, the sun smiling, the clouds */
+        G_SKY(y0, h, P565(0x5e, 0xc8, 0xff), P565(0xbf, 0xea, 0xff));
+        { int32_t sx = 187, sy = y0 + h * 24 / 100, r = 14 + (q < 64 && song.playing ? 2 : 0);
+          for (k = 0; k < 12; k++) { int32_t a = k * 21 + ms / 30; G_L2(sx + gv_sin((uint32_t)a & 255u) * (r + 4) / 127, sy + gv_sin((uint32_t)(a + 64) & 255u) * (r + 4) / 127,
+                                                                       sx + gv_sin((uint32_t)a & 255u) * (r + 10) / 127, sy + gv_sin((uint32_t)(a + 64) & 255u) * (r + 10) / 127, GC_Y); }
+          G_D(sx, sy, r, GC_Y); G_R(sx - 7, sy - 3, 5, 3, RGB(0x11, 0x11, 0x11)); G_R(sx + 2, sy - 3, 5, 3, RGB(0x11, 0x11, 0x11)); G_R(sx - 4, sy + 4, 8, 2, RGB(0x11, 0x11, 0x11)); }
+        for (k = 0; k < 2; k++) { int32_t cx = (k * 120 + ms / 50) % 280 - 30, cy = y0 + 20 + k * 22; G_D(cx, cy, 8, GC_T); G_D(cx + 10, cy - 3, 10, GC_T); G_D(cx + 21, cy, 8, GC_T); }
+        G_R(0, y0 + h - 14, 240, 14, RGB(0x6c, 0xc0, 0x4a));
+        break;
+    }
+}
+static void gv_stage(uint32_t st, int32_t x0, int32_t y0, int32_t w, int32_t h, int32_t u)   /* a style's scene + the monster */
+{
+    static const uint32_t TOP[GV_NSTY] = {0x0b0b14, 0x140808, 0x10103a, 0x090014, 0x14100a, 0x101214, 0x0a1a10, 0x141014, 0x0c0c18, 0x101010, 0x1a0808,
+                                          0x0a1408, 0x2a0a3a, 0x1a0a30, 0x200000, 0x101010, 0x1a1008},
+                          BOT[GV_NSTY] = {0x1a1a30, 0x301010, 0x7ab8ff, 0x3a0a50, 0x405010, 0x202830, 0x20401a, 0x303040, 0x302040, 0x202030, 0x400a0a,
+                                          0x30500a, 0x8a3a6a, 0x5a2a7a, 0x600a0a, 0x303030, 0x604020},
+                          ACC[GV_NSTY] = {0xff4646, 0xff8a1f, 0xffffff, 0x35e3c4, 0xc6f432, 0x939ba5, 0x3ddc84, 0xffd23f, 0xa78bfa, 0x4f8cff, 0xff4646,
+                                          0xc6f432, 0xff6fb5, 0xffd23f, 0xff4646, 0xff8a1f, 0xff9e6b};
+    static const uint8_t KIND[GV_NSTY] = {0, 3, 1, 2, 4, 5, 6, 7, 7, 7, 3, 4, 8, 8, 0, 3, 9};   /* lasers rays spiral wall smiley grid dub city disco fire */
+    uint32_t k, s = st % GV_NSTY, ms = fm1_ms, q = gv_beatq();
+    uint16_t top = (uint16_t)P565(TOP[s] >> 16, (TOP[s] >> 8) & 255u, TOP[s] & 255u), bot = (uint16_t)P565(BOT[s] >> 16, (BOT[s] >> 8) & 255u, BOT[s] & 255u),
+             acc = RGB(ACC[s] >> 16, (ACC[s] >> 8) & 255u, ACC[s] & 255u);
+    int32_t cx = x0 + w / 2, fl = y0 + h - 6;
+    for (k = 0; k < 8u; k++) G_R(x0, y0 + h * (int32_t)k / 8, w, h / 8 + 1, gv_sw(gv_mix565(top, bot, (int32_t)k * 16 / 7)));
+    switch (KIND[s]) {
+    case 0:   /* lasers from the stage */
+        for (k = 0; k < 7u; k++) { int32_t a = gv_sin((ms / 10u + k * 37u) & 255u) * w / 2 / 127; G_L(cx, fl - 10, cx + a + ((int32_t)k - 3) * w / 9, y0, acc); }
+        break;
+    case 1:   /* rays turning round the light */
+        for (k = 0; k < 12u; k++) { uint32_t a = (k * 21u + ms / 40u) & 255u; G_L(cx, y0 + h * 6 / 10, cx + gv_sin(a) * w / 127, y0 + h * 6 / 10 + gv_sin((a + 64u) & 255u) * w / 127, gv_mix565(acc, top, 8)); }
+        G_D(cx, y0 + h * 6 / 10, 6 + (q < 64u ? 3 : 0), acc);
+        break;
+    case 2:   /* the psychedelic spiral */
+        for (k = 0; k < 40u; k++) { uint32_t a = (k * 13u + ms / 15u) & 255u; int32_t r = (int32_t)k * h / 90; G_R(cx + gv_sin(a) * r / 127, y0 + h / 2 + gv_sin((a + 64u) & 255u) * r / 127, 2, 2, k & 1u ? acc : RGB(0xff, 0x6f, 0xb5)); }
+        break;
+    case 3:   /* the wall of speakers (free party) */
+        for (k = 0; k < 8u; k++) { int32_t sx = x0 + 4 + (int32_t)(k % 4u) * (w - 8) / 4 + ((int32_t)k / 4) * w / 8, sy = fl - 18 - (int32_t)(k / 4u) * 20, r = 6 + (q < 64u ? 2 : 0);
+            G_R(sx, sy, w / 5, 18, RGB(0x1a, 0x1a, 0x1e)); G_D(sx + w / 10, sy + 9, r, RGB(0x05, 0x05, 0x05)); G_C(sx + w / 10, sy + 9, r, acc); }
+        break;
+    case 4: { /* the acid smiley */
+        int32_t sy = y0 + h / 2 - 6 + (q < 64u ? -3 : 0), r = h / 5;
+        G_D(cx, sy, r, RGB(0xff, 0xd2, 0x3f)); G_R(cx - r / 2, sy - r / 3, 3, 4, RGB(0x11, 0x11, 0x11)); G_R(cx + r / 2 - 3, sy - r / 3, 3, 4, RGB(0x11, 0x11, 0x11));
+        for (k = 0; k < 9u; k++) G_R(cx - r / 2 + (int32_t)k * r / 8, sy + r / 3 + gv_abs((int32_t)k - 4) * -1 + 3, 2, 2, RGB(0x11, 0x11, 0x11));
+        break; }
+    case 5:   /* minimal: the grid, one cell on the beat */
+        for (k = 0; k < 16u; k++) G_R(x0 + 8 + (int32_t)(k % 8u) * (w - 16) / 8, y0 + h / 3 + (int32_t)(k / 8u) * 14, (w - 16) / 8 - 3, 10, k == (song.playing ? gv_pos : (ms / 200u) & 15u) ? acc : RGB(0x30, 0x34, 0x3a));
+        break;
+    case 6:   /* dub: the big speaker breathing, the smoke */
+        G_R(cx - h / 4, y0 + 8, h / 2, h - 16, RGB(0x10, 0x18, 0x10)); G_D(cx, y0 + h / 2 - 4, h / 6 + (q < 96u ? 2 : 0), RGB(0x05, 0x05, 0x05)); G_C(cx, y0 + h / 2 - 4, h / 6 + 2, acc);
+        for (k = 0; k < 5u; k++) G_C(x0 + 20 + (int32_t)k * w / 5, y0 + 12 + gv_sin((ms / 20u + k * 50u) & 255u) * 6 / 127, 5, RGB(0x60, 0x70, 0x60));
+        break;
+    case 7:   /* the city, the street lights */
+        for (k = 0; k < 9u; k++) { int32_t bh = 20 + (int32_t)((k * 37u) % 40u), x = x0 + (int32_t)k * w / 9; G_R(x, fl - bh, w / 9 - 2, bh, RGB(0x18, 0x18, 0x24));
+            if (((k * 7u + ms / 700u) % 3u) == 0u) G_R(x + 3, fl - bh + 5, 3, 3, acc); }
+        break;
+    case 8: { /* house: the disco ball, the spots */
+        int32_t i, j;
+        for (k = 0; k < 4u; k++) { int32_t sw = gv_sin((ms / 14u + k * 60u) & 255u) * 30 / 127, x = x0 + 20 + (int32_t)k * (w - 40) / 3; G_TRI(x, y0, x + sw - 10, fl, x + sw + 10, fl, gv_mix565(top, acc, 5)); }
+        for (i = -2; i <= 2; i++) for (j = -2; j <= 2; j++) if (i * i + j * j <= 5) G_R(cx + i * 4 - 2, y0 + 16 + j * 4 - 2, 3, 3, gv_sin((uint32_t)(i * 40 + j * 23 + (int32_t)ms / 6) & 255u) > 40 ? GC_T : RGB(0x8a, 0x94, 0xa6));
+        break; }
+    default:  /* tribe: the fire */
+        for (k = 0; k < 14u; k++) { int32_t fx = cx - 18 + (int32_t)k * 3, fh = 10 + gv_abs(gv_sin((ms / 5u + k * 41u) & 255u)) * 14 / 127; G_R(fx, fl - fh, 3, fh, k & 1u ? acc : RGB(0xff, 0xd2, 0x3f)); }
+        break;
+    }
+    G_R(x0, fl, w, y0 + h - fl, RGB(0x10, 0x10, 0x14));
+    if (u) gv_mon(x0 + w * 82 / 100, fl, u);
+}
+static void gv_perfmini(int32_t y)                   /* the 16 pads, small (the web's perfMini) */
+{
+    uint32_t j;
+    for (j = 0; j < 16u; j++) G_R(4 + (int32_t)j * 146 / 10, y, 12, 10, gv_perf_on(j) ? (j < 8u ? GC_C : GC_Y) : GC_P2);
+    G_TC(120, y + 14, 1, "PADS : LOOP ROLL REVERSE CIBLE VERROU", GC_M);
+}
+static void gv_cell(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t kind, int32_t v, uint16_t cc, int hk)   /* the MIX cells */
+{
+    int32_t k, ms = (int32_t)fm1_ms, beat = 60000 / gv_clamp(song.g[G_BPM], 40, 240);
+    G_R(x, y, w, h, GC_P);
+    if (kind == 0u) {                                  /* a level meter that jumps with the hits */
+        int32_t pulse = hk ? 256 : 64 + gv_sin((uint32_t)(ms * 256 / beat) & 255u) * 32 / 127 + 32, lv = v * (90 + 166 * pulse / 256) / 256;
+        for (k = 0; k < 12; k++) G_R(x + 14, y + h - 10 - k * 7, w - 28, 5, k * 127 / 12 < lv ? (k > 9 ? GC_R : k > 7 ? GC_Y : cc) : GC_P2);
+    } else if (kind == 1u) {                           /* the disto: the wave clips */
+        int32_t i, py = 0;
+        for (i = 0; i <= w - 4; i++) { int32_t a = gv_sin((uint32_t)(i * 512 / w - ms / 6) & 255u), yy = gv_clamp(a * (1 + v / 9), -127, 127);
+            yy = y + h / 2 - yy * (h * 32 / 100) / 127; if (i) G_L(x + 2 + i - 1, py, x + 2 + i, yy, GC_Y); py = yy; }
+    } else if (kind == 2u) {                           /* the echo: dots going away */
+        int32_t per = beat * 3 / 4, ph = (ms % per) * 256 / per, a = 256;
+        for (k = 0; k < 6 && v; k++) { int32_t cx = x + 8 + (k * 256 + ph) * (w - 14) / (6 * 256); if (a > 40) G_D(cx, y + h / 2, (5 * a / 256) + 1, a > 128 ? cc : gv_mix565(GC_P, cc, a / 16)); a = a * 62 / 100; }
+    } else if (kind == 3u) {                           /* the reverb: rings growing */
+        int32_t per = beat * 2;
+        for (k = 0; k < 4; k++) { int32_t ph = ((ms % per) * 256 / per + k * 64) & 255; if (v) G_C(x + w / 2, y + h / 2, 4 + ph * (10 + 38 * v / 127) / 256, ph < 160 ? GC_C : GC_L); }
+    } else {                                           /* AUTO: the dice, turning when on */
+        int32_t sp = v ? ms / 120 : 0, dx = gv_sin((uint32_t)(sp * 8) & 255u) * 3 / 127;
+        G_R(x + w / 2 - 14 + dx, y + h / 2 - 14, 28, 28, v ? GC_C : GC_P2);
+        G_R(x + w / 2 - 8 + dx, y + h / 2 - 8, 4, 4, GC_BG); G_R(x + w / 2 - 2 + dx, y + h / 2 - 2, 4, 4, GC_BG); G_R(x + w / 2 + 4 + dx, y + h / 2 + 4, 4, 4, GC_BG);
     }
 }
 static void gv_grid16(const char *const *lab, int32_t y0, int32_t hh, uint16_t ink)   /* the 16 white keys, as the web's labels */
@@ -954,33 +1273,146 @@ static void gv_draw_body(void)
         G_F(26 + gu.cur * 13, y0 - 2, 13, n * rh + 3, GC_T);
         if (song.playing) G_F(26 + gv_pos * 13, y0 - 2, 13, n * rh + 3, GC_C);
         break; }
-    case GP_STY:
-        for (i = 0; i < 9u; i++) {
-            int k = ((int)gu.sty - 4 + (int)i + GV_NSTY * 2) % GV_NSTY;
-            int32_t y = 36 + (int32_t)i * 15;
-            if (k == gu.sty) G_R(2, y - 2, 236, 14, GC_P2);
-            G_T(8, y + 1, 2, GV_STN[k], k == gv.style ? GC_Y : k == gu.sty ? GC_T : GC_M);
-            gv_fmt(b, "%d BPM", (int)GV_STBPM[k]);
-            G_TR(234, y + 3, 1, b, GC_M);
+    case GP_STY: {                                     /* the list, the style's scene (ARP held 2 s = take it) */
+        int32_t top = gv_clamp((int32_t)gu.sty - 3, 0, GV_NSTY - 8), k;
+        for (k = 0; k < 8; k++) {
+            int32_t j = top + k, y = 36 + k * 17;
+            if (j == gu.sty) { G_R(2, y, 112, 16, GC_P2); G_F(2, y, 112, 16, GC_T); }
+            G_T(7, y + 5, 1, GV_STN[j], j == gv.style ? GC_Y : j == gu.sty ? GC_T : GC_M);
+            if (j == gv.style) G_R(104, y + 6, 4, 4, GC_Y);
         }
-        G_TC(120, 174, 1, "MAINTIENS ARP 2 S : VALIDER + TOUT REGENERER", GC_C);
-        break;
-    case GP_GRYT: case GP_GMEL: {
-        static const char *const KR[8] = {"1 NOUVEAU RYTHME", "2 VARIER", "3 NOUVELLE LIGNE", "4 VIDER LIGNE", "5 VIDER TOUT", "", "", ""};
-        static const char *const KM[8] = {"1 NOUVELLE MELODIE", "2 VARIER", "3 TOUTES LES PISTES", "4 VIDER PISTE", "5 VIDER TOUT", "", "", ""};
-        G_TC(120, 38, 3, GV_STN[gv.style], GC_A);
-        for (i = 0; i < 5u; i++) G_T(14, 66 + (int32_t)i * 14, 2, gu.page == GP_GRYT ? KR[i] : KM[i], GC_T);
-        {
-            const uint8_t *p = gv_progp();
-            if (p) for (i = 0; i < 4u; i++) {
-                int32_t x = 14 + (int32_t)i * 54;
-                int on = song.playing && gv_cix == i;
-                G_R(x, 142, 50, 18, on ? GC_Y : GC_P2);
-                G_TC(x + 25, 147, 2, gv_degname(p[i]), on ? GC_BG : GC_T);
-            }
-        }
+        gv_stage(gu.sty, 118, 36, 120, 108, 1);
+        G_F(118, 36, 120, 108, GC_L);
+        gv_fmt(b, "%d BPM  %s", (int)GV_STBPM[gu.sty], GV_STSC[gu.sty] >= 0 ? GV_SCN[GV_STSC[gu.sty]] : "MINEUR");
+        G_TC(178, 150, 1, b, GC_T);
+        G_TC(178, 164, 1, gu.sty == gv.style ? "EN COURS" : "ARP MAINTENU = VALIDER", gu.sty == gv.style ? GC_Y : GC_C);
+        gv_fmt(b, "%d/%d", (int)gu.sty + 1, GV_NSTY);
+        G_TC(58, 174, 1, b, GC_M);
         break; }
-    case GP_FXD: case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC: case GP_SON: {
+    case GP_GRYT: {                                    /* the style, the 8 rows of the rhythm */
+        uint32_t r, c;
+        G_TC(120, 38, 3, GV_STN[gv.style], GC_C);
+        gv_fmt(b, "%d BPM  SWING %d%%  AUTO %s", (int)song.g[G_BPM], (int)song.g[G_SWING], gv.autob ? "ON" : "OFF");
+        G_TC(120, 64, 1, b, GC_M);
+        for (r = 0; r < 8u; r++) {
+            int32_t y = 76 + (int32_t)r * 12, sel = (int32_t)r == (gv.sel & 7);
+            const track_t *tr = &trk[GV_ROWTRK[r]];
+            G_T(4, y + 2, 1, GV_ROWN[r], sel ? GV_ROWC[r] : GC_L);
+            for (c = 0; c < 16u; c++) G_R(40 + (int32_t)c * 12, y, 11, 10, tr->step[c].on ? GV_ROWC[r] : (c % 4u ? GC_P : GC_P2));
+            if (sel) G_F(39, y - 1, 194, 12, GC_T);
+        }
+        if (song.playing) G_F(40 + gv_pos * 12 - 1, 74, 13, 100, GC_C);
+        G_TC(120, 176, 1, gv.tpl ? "MOTIF DU STYLE" : "MOTIF A LA MAIN", GC_T);
+        break; }
+    case GP_GMEL: {                                    /* the chords, then the 6 tracks' melodies */
+        const uint8_t *p = gv_progp();
+        uint32_t k, c;
+        if (p) for (i = 0; i < 4u; i++) {
+            int32_t x = 14 + (int32_t)i * 54;
+            int on = song.playing && gv_cix == i;
+            G_R(x, 36, 50, 20, on ? GC_Y : GC_P2);
+            if (!on) G_F(x, 36, 50, 20, GC_L);
+            G_TC(x + 25, 42, 2, gv_degname(p[i]), on ? GC_BG : GC_T);
+        } else G_TC(120, 42, 1, "ACCORDS OFF  TONIQUE FIXE", GC_M);
+        for (k = 0; k < GV_NT; k++) {
+            int32_t y = 62 + (int32_t)k * 19, sel = (int32_t)k + 8 == gv.sel, L = (int32_t)gv_L();
+            G_R(36, y, 200, 17, sel ? GC_P2 : GC_P);
+            G_T(2, y + 6, 1, GV_TRN[k], sel ? GV_TRC[k] : GC_L);
+            for (c = 0; c < 16u; c++) { const gv_step_t *st = &gv.t[k].st[c]; if (st->n >= 0) G_R(37 + (int32_t)c * 12, y + 14 - st->n * 13 / (2 * L), 10, 3, gv.t[k].mute ? GC_L : GV_TRC[k]); }
+            if (sel) G_F(36, y, 200, 17, GC_T);
+        }
+        if (song.playing) G_F(37 + gv_pos * 12 - 1, 60, 12, 116, GC_C);
+        G_TC(120, 178, 1, gu.mbu ? "BANQUE : SAVE (TOUCHES 9-16)" : "BANQUE VIDE  SAVE = ENREGISTRER", GC_A);
+        break; }
+    case GP_ENV: {                                     /* the envelope's curve; the dot runs it when the track plays */
+        uint16_t cc = gv_col(gv.sel);
+        int32_t X = 12, Y = 40, W = 216, H = 92, x1 = X + 4 + t->att * 60 / 127, x2 = x1 + 20 + t->dec * 70 / 127, x3 = X + W - 30,
+                ys = Y + H * 45 / 100 + 10, yb = Y + H - 8, el = (int32_t)(fm1_ms - gv_on_ms[(gv.sel - 8) & 7]);
+        G_R(X, Y, W, H, GC_P);
+        G_L2(X + 4, yb, x1, Y + 10, cc); G_L2(x1, Y + 10, x2, ys, cc); G_L2(x2, ys, x3, ys, cc); G_L2(x3, ys, X + W - 4, yb, cc);
+        if (el >= 0 && el < 1200) {
+            int32_t px = X + 4 + el * (W - 8) / 1200, py;
+            py = px < x1 ? yb - (px - X - 4) * (yb - Y - 10) / (x1 - X - 3) : px < x2 ? Y + 10 + (px - x1) * (ys - Y - 10) / (x2 - x1 + 1) : px < x3 ? ys : ys + (px - x3) * (yb - ys) / (X + W - 3 - x3);
+            G_D(px, py, 4, GC_T);
+        }
+        G_TC((X + 4 + x1) / 2, Y + H - 12, 1, "A", GC_M); G_TC((x1 + x2) / 2, Y + H - 12, 1, "D", GC_M);
+        G_TC((x2 + x3) / 2, Y + H - 12, 1, "S", GC_M); G_TC((x3 + X + W) / 2, Y + H - 12, 1, "R", GC_M);
+        G_T(X + 4, Y + H + 10, 1, "GLIDE", GC_M);
+        { int32_t gl = t->gl * 80 / 127, i, py = 0; for (i = 0; i <= 90; i++) { int32_t yy = Y + H + 14 - (i < gl ? i * 8 / (gl + 1) : 8); if (i) G_L(X + 40 + i - 1, py, X + 40 + i, yy, GC_Y); py = yy; } }
+        { static const char *const WV[3] = {"SCIE", "CARRE", "TRI"}; G_TR(X + W - 4, Y + H + 10, 1, WV[t->wave % 3u], cc); }
+        break; }
+    case GP_FLT: {                                     /* the filter's curve, the cutoff (yellow), the sound going through */
+        uint16_t cc = gv_col(gv.sel);
+        int32_t X = 10, Y = 40, W = 220, H = 100, i, py = 0, lfo = t->lfd ? gv_sin((uint32_t)(fm1_ms * (uint32_t)(26 + t->lfr * t->lfr * 5120 / 16129) / 1000u) & 255u) * t->lfd / 127 * 15 / 127 : 0,
+                fc = gv_clamp(t->cut + lfo, 0, 127), q = t->res;
+        G_R(X, Y, W, H, GC_P);
+        for (i = 1; i < 5; i++) G_R(X + i * W / 5, Y, 1, H, GC_P2);
+        for (i = 0; i <= W; i++) {
+            int32_t f = i * 127 / W, d = f - fc, pk = gv_abs(d) < 8 ? q * (8 - gv_abs(d)) / 8 : 0, r;
+            r = t->ftype == 1u ? (d > 0 ? 100 : gv_clamp(100 + d * 5, 0, 100)) : t->ftype == 2u ? gv_clamp(100 - gv_abs(d) * (4 + q / 12), 0, 100) : (d < 0 ? 100 : gv_clamp(100 - d * 5, 0, 100));
+            r += pk * 90 / 127;
+            { int32_t yy = Y + H - 8 - gv_clamp(r, 0, 190) * H * 42 / 10000; if (i) G_L2(X + i - 1, py, X + i, yy, cc); py = yy; }
+        }
+        for (i = 0; i < 26; i++) {
+            int32_t f = (int32_t)((i * 35 + fm1_ms / 16u) % 256u), fx = f * 127 / 255, d = fx - fc,
+                    a = t->ftype == 1u ? (d > 0 ? 100 : gv_clamp(100 + d * 5, 0, 100)) : t->ftype == 2u ? gv_clamp(100 - gv_abs(d) * 4, 0, 100) : (d < 0 ? 100 : gv_clamp(100 - d * 5, 0, 100));
+            G_R(X + f * W / 256, Y + H - 10 - ((i * 37) % 60) * a / 100, 2, 2, a > 50 ? GC_T : GC_L);
+        }
+        for (i = Y + 4; i < Y + H - 4; i += 6) G_R(X + fc * W / 127, i, 1, 3, GC_Y);
+        { static const char *const FT[3] = {"PASSE-BAS", "PASSE-HAUT", "BANDE"}; gv_fmt(b, "%s%s", FT[t->ftype % 3u], t->lfd ? "  LFO ACTIF" : ""); G_TC(120, Y + H + 6, 1, b, cc); }
+        break; }
+    case GP_LFO: {                                     /* the LFO's wave, moving at its speed; the cutoff it moves */
+        uint16_t cc = gv_col(gv.sel);
+        int32_t X = 10, Y = 40, W = 220, H = 80, i, py = 0, dep = 32 + t->lfd * 95 / 127,
+                hz256 = t->lfs ? (int32_t)((uint32_t)song.g[G_BPM] * 256u / 60u) : 26 + t->lfr * t->lfr * 5120 / 16129,
+                cyc = gv_clamp(hz256 * 12 / 2560, 1, 6), ph0 = (int32_t)(fm1_ms * (uint32_t)hz256 / 1000u) & 255, v = 0;
+        G_R(X, Y, W, H, GC_P); G_R(X, Y + H / 2, W, 1, GC_P2);
+        for (i = 0; i <= W; i++) {
+            int32_t ph = (ph0 + i * 256 * cyc / W) & 255, w = t->lfw == 0u ? gv_sin((uint32_t)ph) : t->lfw == 1u ? 127 - gv_abs(ph - 128) * 254 / 128 : t->lfw == 2u ? (ph < 128 ? 127 : -127) : 127 - ph,
+                    yy = Y + H / 2 - w * (H * 40 / 100) * dep / (127 * 127);
+            if (i) G_L2(X + i - 1, py, X + i, yy, cc);
+            py = yy; v = w;
+        }
+        G_D(X + W - 3, py, 4, GC_T);
+        if (t->lfs) G_T(X + 6, Y + 6, 1, "CALE SUR LE TEMPO", GC_M);
+        else { gv_fmt(b, "%d,%d HZ", (int)(hz256 / 256), (int)(hz256 % 256 * 10 / 256)); G_T(X + 6, Y + 6, 1, b, GC_M); }
+        G_T(X, Y + H + 10, 1, "COUPURE", GC_M);
+        { int32_t fc = gv_clamp(t->cut + v * t->lfd / 127 * 15 / 127, 0, 127); G_R(X + 50, Y + H + 9, 170, 7, GC_P2); G_R(X + 50, Y + H + 9, 170 * fc / 127, 7, cc); G_R(X + 50 + 170 * t->cut / 127 - 1, Y + H + 6, 2, 13, GC_T); }
+        break; }
+    case GP_OSC: {                                     /* the oscilloscope: the track's own sound */
+        uint16_t cc = gv_col(gv.sel);
+        int32_t X = 8, Y = 38, W = 224, H = 104, i, z = 0, pk = 1, py = 0;
+        uint8_t w0 = (uint8_t)(gv_scw - 255u);
+        gv_scope_trk = (uint8_t)((gv.sel - 8) & 7);
+        G_R(X, Y, W, H, RGB(0x0b, 0x0d, 0x10));
+        for (i = 1; i < 8; i++) G_R(X + i * W / 8, Y, 1, H, RGB(0x1d, 0x22, 0x28));
+        G_R(X, Y + H / 2, W, 1, RGB(0x1d, 0x22, 0x28));
+        for (i = 0; i < 255; i++) pk = gv_abs(gv_scope[(uint8_t)(w0 + i)]) > pk ? gv_abs(gv_scope[(uint8_t)(w0 + i)]) : pk;
+        for (i = 1; i < 120; i++) if (gv_scope[(uint8_t)(w0 + i - 1)] < 0 && gv_scope[(uint8_t)(w0 + i)] >= 0) { z = i; break; }
+        if (pk > 30 && gvv[(gv.sel - 8) & 7].on) {
+            for (i = 0; i < W; i++) {
+                int32_t smp = gv_scope[(uint8_t)(w0 + z + i * (250 - z) / W)], yy = Y + H / 2 - smp * (H * 42 / 100) / pk;
+                if (i) G_L2(X + i - 1, py, X + i, yy, cc);
+                py = yy;
+            }
+        } else G_TC(120, Y + H / 2 - 4, 1, "JOUE UNE NOTE OU PLAY", GC_M);
+        { static const char *const WV[3] = {"SCIE", "CARRE", "TRI"}; gv_fmt(b, "%s  OCT %d  PITCH %+d", WV[t->wave % 3u], (int)t->oct, (int)t->po); G_TC(120, Y + H + 6, 1, b, cc); }
+        break; }
+    case GP_SON: {                                     /* the sounds, as the web's library list */
+        int d = gv_isd(), n = d ? (int)NMODELS : 3, cur = d ? gv_rt()->p[P_MODEL] : t->wave, top = gv_clamp(cur - 3, 0, n > 7 ? n - 7 : 0), k;
+        static const char *const WV[3] = {"SYNTHE SCIE", "SYNTHE CARRE", "SYNTHE TRIANGLE"};
+        gv_fmt(b, "SONS  %s", gv_name(gv.sel));
+        G_T(6, 36, 2, b, gv_col(gv.sel));
+        for (k = 0; k < 7 && top + k < n; k++) {
+            int32_t j = top + k, y = 56 + k * 17;
+            if (j == cur) { G_R(3, y, 234, 16, RGB(0x2c, 0x24, 0x1a)); G_F(3, y, 234, 16, GC_A); }
+            G_R(5, y + 2, 3, 12, gv_col(gv.sel));
+            G_T(14, y + 5, 1, d ? DMODELS[j].name : WV[j], j == cur ? GC_T : GC_M);
+            if (j == cur) G_TR(230, y + 5, 1, "EN COURS", GC_Y);
+        }
+        G_TC(120, 176, 1, d ? "KNOB 1 = MODELE  2 = ACCORD  3 = DECAY" : "SAMPLES ET PIANO : VERSION WEB", GC_M);
+        break; }
+    case GP_FXD: {
         uint8_t kn[4];
         gv_knobs(kn);
         G_TC(120, 40, 2, gu.page == GP_FXD ? "TOUTE LA BATTERIE" : gv_name(gv.sel), gu.page == GP_FXD ? GC_C : gv_col(gv.sel));
@@ -992,6 +1424,7 @@ static void gv_draw_body(void)
             G_R(x, 56, 24, h, GC_P);
             G_R(x, 56 + h - v, 24, v, gu.page == GP_FXD ? GC_C : gv_col(gv.sel));
         }
+        if (gu.page == GP_FXD) { uint32_t j; for (j = 0; j < 16u; j++) G_R(4 + (int32_t)j * 146 / 10, 172, 12, 8, gv_perf_on(j) ? (j < 8u ? GC_C : GC_Y) : GC_P2); }
         if (gu.page == GP_LFO && t->lfd) {             /* the LFO's wave, moving */
             int32_t px = 0, py = 0;
             for (c = 0; c < 200u; c++) {
@@ -1002,64 +1435,151 @@ static void gv_draw_body(void)
             }
         }
         break; }
-    case GP_SCL:
-        for (i = 0; i < 12u; i++) {
-            int in = 0, k;
-            for (k = 0; k < (int)gv_L(); k++) if (GV_SC[gv.scale % GV_NSC][k] == i) in = 1;
-            G_R(1 + (int32_t)i * 20, 40, 18, 50, i == 0u ? GC_Y : in ? GC_A : GC_P2);
-            G_TC(10 + (int32_t)i * 20, 80, 1, GV_NOTE[(gv.root + i) % 12u], in || !i ? GC_BG : GC_L);
-        }
+    case GP_SCL: {                                     /* the scale's scene and the monster; its notes; the chords */
+        int32_t k;
+        gv_scene(gv.scale, 31, 110);
+        gv_mon(200, 138, 2);
         gv_fmt(b, "%s %s", GV_NOTE[gv.root], GV_SCN[gv.scale % GV_NSC]);
-        G_TC(120, 104, 2, b, GC_T);
+        G_R(4, 35, G_TW(1, b) + 10, 12, RGB(0x10, 0x10, 0x14)); G_T(9, 38, 1, b, GC_T);
+        for (k = 0; k < 12; k++) {
+            int in = 0, j;
+            for (j = 0; j < (int)gv_L(); j++) if (GV_SC[gv.scale % GV_NSC][j] == k) in = 1;
+            G_R(1 + k * 20, 143, 18, 14, k == 0 ? GC_Y : in ? GC_A : GC_P2);
+            G_TC(10 + k * 20, 147, 1, GV_NOTE[(gv.root + (uint32_t)k) % 12u], in || !k ? GC_BG : GC_L);
+        }
         {
             const uint8_t *p = gv_progp();
-            if (p) for (i = 0; i < 4u; i++) G_TC(36 + (int32_t)i * 56, 130, 2, gv_degname(p[i]), song.playing && gv_cix == i ? GC_Y : GC_A);
-            else G_TC(120, 130, 1, "ACCORDS OFF", GC_M);
+            if (p) for (i = 0; i < 4u; i++) G_TC(36 + (int32_t)i * 56, 166, 2, gv_degname(p[i]), song.playing && gv_cix == i ? GC_Y : GC_A);
+            else G_TC(120, 168, 1, "ACCORDS OFF  SELECT = CHANGER DE GAMME", GC_M);
         }
-        break;
-    case GP_GLO:
+        break; }
+    case GP_GLO: {
+        static const char *const AL[6] = {"PAGES", "BPM", "FILTRE DJ", "VOLUME", "RYTHMES", "SWING"};
         gv_fmt(b, "%d", (int)song.g[G_BPM]);
-        G_TC(120, 40, 6, b, GC_Y);
-        G_TC(120, 84, 1, "BPM", GC_M);
-        gv_grid16(K_GLO, 96, 80, GC_A);
-        break;
-    case GP_FXR:
-        G_TC(120, 36, 1, "LES EFFETS EN ROUTE (TOUCHE : LE COUPER)", GC_M);
-        gv_grid16(K_FXR, 48, 132, GC_C);
-        break;
-    case GP_FXA: case GP_FXB: case GP_FXP: {
-        static const char *const TG[3] = {"TOUT", "RYTHME", "MELODIE"};
-        gv_fmt(b, "PADS SUR : %s%s", TG[gv_ptg % 3u], gu.lock ? "  VERROU" : "");
-        G_TC(120, 36, 1, b, GC_Y);
-        gv_grid16(K_PERF, 48, 132, GC_A);
+        G_TC(120, 46, 8, b, GC_Y);
+        gv_fmt(b, "BPM  SWING %d%%", (int)song.g[G_SWING]);
+        G_TC(120, 104, 1, b, GC_M);
+        gv_fmt(b, "%s  AUTO RYTHME %s", GV_STN[gv.style], gv.autob ? "ON" : "OFF");
+        G_TC(120, 122, 2, b, GC_T);
+        gv_fmt(b, "ALGORITHM : %s", AL[gv.algo % 6u]);
+        G_TC(120, 146, 1, b, GC_A);
+        G_TC(120, 162, 1, "TOUCHE 1 = TAP TEMPO  3-8 = ALGORITHM  16 = HORTATOR", GC_M);
         break; }
-    case GP_MIX: case GP_LRR:
-        G_TC(120, 36, 1, gv_name(gv.sel), gv_col(gv.sel));
-        gv_grid16(K_LRR, 48, 132, gv_col(gv.sel));
-        break;
-    case GP_VIS: {                                     /* the style, the beat, the little orange monster dancing */
-        uint32_t bt = song.playing ? (uint32_t)(gv_pos & 3u) : 0u, ph = song.playing ? (uint32_t)(gv_acc_s * 256u / (gv_stepn ? gv_stepn : 1u)) : 0u;
-        int32_t hop = song.playing && bt == 0u ? (int32_t)(256u - ph) * 10 / 256 : 0, mx = 120, my = 150 - hop, k;
-        G_TC(120, 36, 3, GV_STN[gv.style], GC_A);
-        for (i = 0; i < 14u; i++) {
-            int32_t h = gv_flash((int)i) ? 30 : 6, x = 4 + (int32_t)i * 17;
-            G_R(x, 176 - h, 13, h, gv_col((int)i));
+    case GP_FXR: {                                     /* the list of the effects at work, each its bar (16 keys = cut it) */
+        static const uint8_t AMT_K[16] = {0};
+        int32_t act = 0;
+        (void)AMT_K;
+        for (i = 0; i < 15u; i++) act += gv_fxr_on(i);
+        if (act) { gv_fmt(b, "%d EFFET(S) ACTIF(S)", (int)act); } else gv_fmt(b, "AUCUN EFFET ACTIF");
+        G_T(6, 36, 1, b, act ? GC_Y : GC_M);
+        G_TR(236, 36, 1, "TOUCHE = COUPER", GC_M);
+        for (i = 0; i < 16u; i++) {
+            int32_t x = 4 + (int32_t)(i % 2u) * 118, y = 46 + (int32_t)(i / 2u) * 17, on = gv_fxr_on(i), amt;
+            static const char *const N[16] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
+            amt = i == 0u ? 127 - gv.mf : i == 1u ? gv.hp : i == 2u ? gv.mq : i == 3u ? gv.xd : i == 4u ? gv.xr : i == 5u ? gv.xs : on ? 90 : 0;
+            G_R(x, y, 114, 15, on ? RGB(0x2c, 0x24, 0x1a) : GC_P);
+            G_T(x + 3, y + 5, 1, N[i], GC_L);
+            G_T(x + 16, y + 5, 1, K_FXR[i], on ? GC_T : GC_L);
+            G_R(x + 80, y + 5, 30, 5, GC_P2);
+            if (on) G_R(x + 80, y + 5, 30 * gv_clamp(amt, 8, 127) / 127, 5, i < 6u ? GC_A : i < 9u ? GC_C : GC_Y);
         }
-        for (k = -1; k <= 1; k++) G_R(mx + k * 9 - 3, my + 12 + (bt & 1u ? (k == 0 ? -3 : 0) : (k ? -3 : 0)), 7, 12, GC_A);   /* the 3 legs */
-        G_R(mx - 26, my - 4 - (bt == 1u ? 12 : 0), 8, 18, GC_A);                    /* the hands */
-        G_R(mx + 18, my - 4 - (bt == 3u ? 12 : 0), 8, 18, GC_A);
-        G_R(mx - 18, my - 40, 36, 54, GC_A);                                       /* the body */
-        G_R(mx - 14, my - 46, 28, 8, GC_A);
-        G_R(mx - 8, my - 32, 16, 16, GC_T); G_R(mx - 5, my - 29, 10, 10, RGB(0x7c, 0xc2, 0x42)); G_R(mx - 2, my - 26, 4, 4, GC_BG);   /* the eye */
-        G_R(mx - 9, my - 8, 18, 5 + (song.playing && bt == 0u ? 3 : 0), GC_BG);  /* the mouth */
-        G_R(mx - 22, my - 46, 4, 18, RGB(0x8a, 0x0d, 0x1e)); G_R(mx + 18, my - 46, 4, 18, RGB(0x8a, 0x0d, 0x1e));   /* headphones */
-        G_R(mx - 20, my - 50, 40, 3, GC_L);
         break; }
-    case GP_SAVE:
-        G_TC(120, 70, 2, "BANQUE", GC_A);
-        G_TC(120, 100, 1, "BATTERIE : PROJETS HORTATOR (GLO 16 > SAVE)", GC_M);
-        G_TC(120, 116, 1, "MELODIES : VERSION SUIVANTE", GC_M);
-        break;
+    case GP_FXA: {                                     /* the whole mix's filter: low-pass, high-pass, the resonance bumps */
+        static const char *const TG[3] = {"TOUT", "RYTHME", "MELODIE"};
+        int32_t X = 12, Y = 48, W = 216, H = 78, py = 0;
+        gv_fmt(b, "FILTRE  PADS SUR : %s%s", TG[gv_ptg % 3u], gu.lock ? "  VERROU" : "");
+        G_TC(120, 36, 1, b, GC_Y);
+        G_R(X, Y, W, H, GC_P);
+        for (i = 0; i <= (uint32_t)W; i++) {
+            int32_t f = (int32_t)i * 127 / W, a = f > gv.mf ? (f - gv.mf) * 4 : 0, bb = f < gv.hp ? (gv.hp - f) * 4 : 0,
+                    bump = (gv_abs(f - gv.mf) < 8 ? (8 - gv_abs(f - gv.mf)) : 0) + (gv.hp && gv_abs(f - gv.hp) < 8 ? (8 - gv_abs(f - gv.hp)) : 0),
+                    yy = Y + 16 + gv_clamp((a + bb) * H / 127, 0, H - 20) - bump * gv.mq * 30 / (8 * 127);
+            if (i) G_L2(X + (int32_t)i - 1, py, X + (int32_t)i, yy, GC_A);
+            py = yy;
+        }
+        G_T(X + 4, Y + H - 10, 1, "COUPE-BAS", GC_M); G_TR(X + W - 4, Y + H - 10, 1, "COUPE-HAUT", GC_M);
+        gv_perfmini(150);
+        break; }
+    case GP_FXB: {                                     /* echo repeats, the reverb's tail, the disto's curve */
+        int32_t k, py = 0;
+        G_TC(120, 36, 1, "ESPACE : ECHO  REVERB  DISTO", GC_Y);
+        for (k = 0; k < 6; k++) { int32_t h = 60 * gv.xd / 127, kk; for (kk = 0; kk < k; kk++) h = h * 6 / 10; G_R(14 + k * 16, 118 - h, 10, h + 1, GC_C); }
+        G_TC(44, 124, 1, "ECHO", GC_M);
+        for (k = 0; k < 60; k++) { int32_t h = 50 * gv.xr / 127 * (60 - k) / 60 * (6 + 4 * (gv_abs(gv_sin((uint32_t)(k * 70) & 255u)) / 127)) / 10; G_R(112 + k, 118 - h, 1, h, GC_A); }
+        G_TC(142, 124, 1, "REVERB", GC_M);
+        for (k = 0; k <= 40; k++) { int32_t x = k * 254 / 40 - 127, a = 1 + gv.xs * 12 / 127, yy = gv_clamp(x * a, -127, 127); yy = 92 - yy * 24 / 127; if (k) G_L2(186 + k - 1, py, 186 + k, yy, GC_Y); py = yy; }
+        G_TC(206, 124, 1, "DISTO", GC_M);
+        gv_perfmini(150);
+        break; }
+    case GP_FXP: {                                     /* the 16 pads, big (8 x 2) */
+        static const char *const W1[16] = {"LOOP", "LOOP", "LOOP", "LOOP", "ROLL", "ROLL", "ROLL", "REV", "CIBLE", "CIBLE", "CIBLE", "VERR.", "REC", "REJ.", "EFF.", "ZERO"},
+                          *const W2[16] = {"1", "2", "4", "8", "X2", "X3", "X4", "<<", "TOUT", "RYT", "MEL", "", "", "", "", ""};
+        for (i = 0; i < 16u; i++) {
+            int32_t x = 4 + (int32_t)(i % 8u) * 29, y = 44 + (int32_t)(i / 8u) * 42, on = gv_perf_on(i);
+            uint16_t c = i < 8u ? GC_C : GC_Y;
+            G_R(x, y, 27, 36, on ? c : GC_P2);
+            if (!on) G_F(x, y, 27, 36, GC_L);
+            G_TC(x + 14, y + 10, 1, W1[i], on ? GC_BG : GC_T);
+            G_TC(x + 14, y + 22, 1, W2[i], on ? GC_BG : GC_M);
+        }
+        G_TC(120, 140, 1, "MAINTIENS LES PADS (VERROU : ILS RESTENT)", GC_M);
+        break; }
+    case GP_MIX: {                                     /* volume, disto, echo, reverb of the track (drums: + auto, the kit) */
+        int d = gv_isd(), hk = gv_flash(gv.sel);
+        uint16_t cc = gv_col(gv.sel);
+        const track_t *r = gv_rt();
+        static const char *const LM[4] = {"VOLUME", "DISTO", "DELAY", "REVERB"}, *const LD[4] = {"VOLUME", "AUTO", "VOL BATT", "REV BATT"};
+        int32_t vals[4];
+        uint32_t kinds[4];
+        G_TC(120, 38, 2, gv_name(gv.sel), cc);
+        if (d) { vals[0] = r->p[P_LEVEL]; vals[1] = gv.rowar[gv.sel & 7]; vals[2] = gv_kget(KN_DVOL); vals[3] = gv_kget(KN_DREV); kinds[0] = 0; kinds[1] = 4; kinds[2] = 0; kinds[3] = 3; }
+        else { vals[0] = t->vol; vals[1] = t->dist; vals[2] = t->dly; vals[3] = t->rev; kinds[0] = 0; kinds[1] = 1; kinds[2] = 2; kinds[3] = 3; }
+        for (i = 0; i < 4u; i++) {
+            int32_t x = 4 + (int32_t)i * 59;
+            gv_cell(x, 52, 56, 92, kinds[i], vals[i], cc, hk);
+            G_TC(x + 28, 148, 1, d ? LD[i] : LM[i], GC_M);
+        }
+        break; }
+    case GP_LRR: {                                     /* the loop going round, the roll repeating, the way */
+        int d = gv_isd();
+        uint8_t lp = d ? gv.rlp[gv.sel & 7] : t->lp, rl = d ? gv.rrl[gv.sel & 7] : t->rl, bw = d ? 0 : t->bw, rv = d ? gv.rrv[gv.sel & 7] : t->rv;
+        uint32_t sd = 15000u / (uint32_t)gv_clamp(song.g[G_BPM], 40, 240), cs = song.playing ? gv_pos : (fm1_ms / sd) & 15u,
+                 pos = lp ? (fm1_ms / sd) % lp : (bw || rv ? 15u - cs : cs);
+        int32_t k;
+        gv_fmt(b, "%s%s", gv_name(gv.sel), bw || rv ? "  < SENS INVERSE" : "");
+        G_TC(120, 38, 1, b, GC_T);
+        for (i = 0; i < 16u; i++) G_R(8 + (int32_t)i * 14, 52, 12, 26, i == pos ? (lp ? GC_C : GC_A) : lp && i < lp ? RGB(0x17, 0x4a, 0x41) : (i % 4u ? GC_P : GC_P2));
+        if (lp) { int32_t x2 = 8 + lp * 14 - 2, a = (int32_t)((fm1_ms % (sd * lp)) * (uint32_t)(x2 - 8) / (sd * lp)); G_L(8, 86, x2, 86, GC_C); G_D(8 + a, 86, 3, GC_C); }
+        gv_fmt(b, lp ? "LOOP %d PAS" : "LOOP OFF", (int)lp);
+        G_T(8, 100, 2, b, lp ? GC_C : GC_M);
+        for (k = 0; k < 4; k++) {
+            int act = k < (rl ? rl : 1), lit = act && (int32_t)(((fm1_ms % sd) * (rl ? rl : 1)) / sd) == k;
+            G_R(140 + k * 24, 96, 18, 18, lit ? GC_Y : act ? RGB(0x5a, 0x4a, 0x12) : GC_P2);
+        }
+        gv_fmt(b, rl > 1 ? "ROLL X%d" : "ROLL OFF", (int)rl);
+        G_T(140, 120, 1, b, rl > 1 ? GC_Y : GC_M);
+        break; }
+    case GP_VIS: {                                     /* the style's scene, the monster dancing, the chords */
+        const uint8_t *p = gv_progp();
+        gv_stage(gv.style, 0, 31, 240, 140, 3);
+        G_R(4, 35, G_TW(2, GV_STN[gv.style]) + 10, 17, RGB(0x10, 0x10, 0x14)); G_T(9, 39, 2, GV_STN[gv.style], GC_T);
+        gv_fmt(b, "M%d", (int)(gv_bar & 3u) + 1); G_R(200, 35, 36, 17, RGB(0x10, 0x10, 0x14)); G_TC(218, 39, 2, b, GC_Y);
+        if (p) for (i = 0; i < 4u; i++) G_TC(36 + (int32_t)i * 56, 174, 1, gv_degname(p[i]), song.playing && gv_cix == i ? GC_Y : GC_T);
+        break; }
+    case GP_SAVE: {                                    /* the bank: 8 rhythms, 8 melodies (RAM: until power-off) */
+        static const char *const MD[3] = {"TOUCHE : CHARGER (VIDE : ENREGISTRER)", "TOUCHE : ENREGISTRER", "TOUCHE : EFFACER"};
+        G_TC(120, 36, 1, MD[gu.bmode % 3u], gu.bmode == 2u ? GC_R : GC_Y);
+        for (i = 0; i < 16u; i++) {
+            int32_t x = 3 + (int32_t)(i % 4u) * 59, y = 48 + (int32_t)(i / 4u) * 32, mel = i >= 8u, k = (int32_t)(i & 7u),
+                    used = (int32_t)(((mel ? gu.mbu : gu.rbu) >> k) & 1u), cur = used && k == (mel ? gu.mcur : gu.rcur);
+            G_R(x, y, 56, 29, cur ? (mel ? GC_A : GC_Y) : used ? GC_P2 : GC_P);
+            if (!used) G_F(x, y, 56, 29, GC_P2);
+            gv_fmt(b, "%s%d", mel ? "M" : "R", k + 1);
+            G_T(x + 4, y + 4, 1, b, cur ? GC_BG : GC_M);
+            G_TC(x + 28, y + 16, 1, used ? (mel ? "MELODIE" : "RYTHME") : "VIDE", cur ? GC_BG : used ? GC_T : GC_L);
+        }
+        G_TC(120, 178, 1, "1-8 RYTHMES  9-16 MELODIES DE LA PISTE", GC_M);
+        break; }
     default: break;
     }
     if (gu.hold_b != NB && !gu.hold_done && fm1_ms - gu.hold_t0 > 250u) {
@@ -1121,6 +1641,7 @@ static int gv_ui_leds(void)
         case GP_FXA: case GP_FXB: case GP_FXP: on = gv_perf_on(j); break;
         case GP_MIX: case GP_LRR: on = gv_lrr_on(j); break;
         case GP_VIS: on = j < 6u; break;
+        case GP_SAVE: on = (int)((j < 8u ? gu.rbu : gu.mbu) >> (j & 7u)) & 1; break;
         default: break;
         }
         led_put(nl, 14u + STEP_KEY[j], on);

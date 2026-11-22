@@ -186,6 +186,42 @@ int main(void)
     tap_btn(B_GLO); tap_key(STEP_KEY[3]); check("GLO key 4: ALGORITHM = BPM", gv.algo == 1u);
     { int16_t bpm = song.g[G_BPM]; tap_btn(B_ENV); sim_enc(EN_ALGO, 3); run(FS / 20u); check("ALGORITHM turns the BPM now", song.g[G_BPM] == bpm + 3); }
     tap_btn(B_GLO); tap_key(STEP_KEY[2]); shot("glo2");
+    tap_btn(B_PLAY); if (!sim_playing()) tap_btn(B_PLAY);
+    gv.sel = 8; tap_btn(B_ENV); while (gu.page != GP_ENV) tap_btn(B_ENV); run(FS / 3u); shot("envp");
+    tap_btn(B_ENV); run(FS / 5u); shot("fltp"); gv.t[0].lfd = 80; tap_btn(B_ENV); run(FS / 5u); shot("lfop");
+    tap_btn(B_ENV); run(FS / 2u); shot("oscp");
+    tap_btn(B_LFO); while (gu.page != GP_MIX) tap_btn(B_LFO); gv.t[0].dist = 60; gv.t[0].dly = 70; gv.t[0].rev = 90; run(FS / 5u); shot("mixp");
+    tap_btn(B_LFO); gv.t[0].lp = 4; run(FS / 5u); shot("lrrp"); gv.t[0].lp = 0;
+    tap_btn(B_SCL); { uint32_t k; for (k = 0; k < 6u; k++) { gv_set_scale(k); run(FS / 10u); { char n[16]; snprintf(n, sizeof n, "scl%u", (unsigned)k); shot(n); } } }
+    gv.xd = 60; gv.xr = 80; gv.xs = 50; gv.mf = 90; gv.hp = 20; gv.mq = 70;
+    tap_btn(B_FX); while (gu.page != GP_FXR) tap_btn(B_FX); shot("fxrp"); tap_btn(B_FX); shot("fxap"); tap_btn(B_FX); shot("fxbp"); tap_btn(B_FX); shot("fxdp"); tap_btn(B_FX); shot("fxpp");
+    tap_btn(B_ARP); while (gu.page != GP_STY) tap_btn(B_ARP); run(FS / 5u); shot("styp");
+    tap_btn(B_ARP); run(FS / 5u); shot("visp"); tap_btn(B_ARP); shot("grytp"); tap_btn(B_ARP); shot("gmelp");
+    tap_btn(B_GLO); shot("glop");
+    gv.sel = 8; tap_btn(B_EDIT); shot("sonm"); gv.sel = 0; gu.dirty = 1; shot("sond"); gv.sel = 8;
+    tap_btn(B_SAVE); check("SAVE: BANQUE", gu.page == GP_SAVE);
+    { uint16_t r0 = gv_rhythm_row_get(0);
+      tap_key(STEP_KEY[0]); check("SAVE key 1 (empty): the rhythm saved", gu.rbu & 1u);
+      gv_rhythm_row_set(0, 0x1234); tap_key(STEP_KEY[0]); check("key 1 again: loaded back", gv_rhythm_row_get(0) == r0);
+      tap_key(STEP_KEY[8]); check("key 9: the bass's melody saved", gu.mbu & 1u);
+      sim_enc(EN_K1, 2); run(FS / 20u); tap_key(STEP_KEY[8]); check("MODE EFFACER, key 9: gone", !(gu.mbu & 1u));
+      sim_enc(EN_K1, -2); run(FS / 20u); }
+    shot("savep");
+    /* LIVE: OCT- / OCT+ cut all the rhythm / the melody; PRESETS: the row's family of sounds */
+    tap_btn(B_HOME); while (gu.page != GP_LIVE) tap_btn(B_HOME);
+    if (!sim_playing()) tap_btn(B_PLAY);
+    tap_btn(B_OCTDN); check("LIVE OCT-: all the rhythm cut", gv.gmute & 1u);
+    { uint32_t h0 = gv_hit_t[0]; double r; run(FS); r = rms_of(FS / 2u); (void)h0; printf("info  rms rhythm cut %.4f\n", r); }
+    tap_btn(B_OCTDN); check("OCT- again: back", !(gv.gmute & 1u));
+    tap_btn(B_OCTUP); check("LIVE OCT+: all the melody cut", gv.gmute & 2u); tap_btn(B_OCTUP);
+    gv.sel = 2;
+    { uint32_t m0 = (uint32_t)trk[GV_ROWTRK[2]].p[P_MODEL], k, ok = 1;
+      for (k = 0; k < 5u; k++) { sim_enc(EN_PRESET, 1); run(FS / 10u); if (!gv_infam(2, (uint32_t)trk[GV_ROWTRK[2]].p[P_MODEL])) ok = 0; }
+      check("PRESETS on the CLAP: only claps", ok);
+      check("PRESETS: the sound changed", (uint32_t)trk[GV_ROWTRK[2]].p[P_MODEL] != m0 || trk[GV_ROWTRK[2]].pre != 0xFFFFu); }
+    shot("presets");
+    gv.sel = 8; { uint8_t c0 = gv.t[0].cut; sim_enc(EN_PRESET, 1); run(FS / 20u); sim_enc(EN_PRESET, 1); run(FS / 20u); check("PRESETS on the bass: a bass sound", gv.t[0].cut != c0 || gv_sndcur[0] != 0); }
+    sim_enc(EN_ALGO, 1); run(FS / 20u); { uint8_t kn[4]; gv_knobs(kn); check("JEU: KNOB 4 = the keyboard's octave", kn[3] == KN_KOCT); } sim_enc(EN_ALGO, -1); run(FS / 20u);
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);
     check("GLO key 16: Hortator's own pages", gv_on == 0);

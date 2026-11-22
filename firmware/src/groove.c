@@ -97,6 +97,9 @@ typedef struct {                   /* a voice, ISR only */
 
 static gv_state_t gv;
 static uint32_t gv_step_len(uint32_t pos);
+static volatile uint32_t gv_on_ms[6];           /* when each melodic track's last note began (the ENV page's dot) */
+static int16_t gv_scope[256];                   /* the shown track's last samples (the OSC page) */
+static volatile uint8_t gv_scw, gv_scope_trk, gv_scdec;
 /* FX pads held (web: LOOP 1-8, ROLL x2-4, REVERSE) on a target: 0 all, 1 the rhythm, 2 the melody */
 static volatile uint8_t gv_plp, gv_prl, gv_prv, gv_ptg;
 static int gv_pon(int drum) { return gv_ptg == 0u || gv_ptg == (drum ? 1u : 2u); }
@@ -381,6 +384,7 @@ static void gv_note_on(uint32_t i, int deg, uint32_t gate, int acc, int slide, u
 static void gv_note_start(uint32_t i)
 {
     gv_voice_t *v = &gvv[i];
+    gv_on_ms[i] = fm1_ms;
     const gv_trk_t *t = &gv.t[i];
     uint32_t k, legato = v->slide && v->on && v->gate;
     v->nosc = v->pn;
@@ -432,9 +436,20 @@ static int32_t gv_lfo(gv_voice_t *v, const gv_trk_t *t, uint32_t n)
     }
     return y;                                            /* -32767..32767 */
 }
+static volatile uint8_t gv_live_hit;            /* a key's hit (drum_hit from here): never cut */
+static int gv_track_heard(uint32_t k);
+static int gv_drum_cut(const track_t *t)
+{
+    uint32_t r;
+    if (gv.magic != GV_MAGIC || (!(gv.gmute & 1u) && !gv.solo)) return 0;   /* (P_MUTE: Hortator's own) */
+    for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
+    if (r == 8u) return 0;
+    return (gv.gmute & 1u) || !((gv.solo >> r) & 1u);
+}
 static int gv_track_heard(uint32_t k)                     /* 0..7 rows, 8..13 tracks: solo / mute / group mute */
 {
     if (k >= 8u && (gv.gmute & 2u)) return 0;
+    if (k < 8u && (gv.gmute & 1u)) return 0;
     if (gv.solo) return (gv.solo >> k) & 1u;
     return k < 8u ? !trk[GV_ROWTRK[k]].p[P_MUTE] : !gv.t[k - 8u].mute;
 }
@@ -497,6 +512,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
             if (rper && !--v->rlc) { v->rlc = rper; if (v->gate) { v->amp >>= 3; v->fenv = 32767; } }   /* ROLL: hit again */
             s = (s * vol) >> 12;
             ml[j] += s; mr[j] += s;
+            if (i == gv_scope_trk && !(gv_scdec++ & 3u)) gv_scope[gv_scw++] = (int16_t)gv_clamp(s >> 3, -32767, 32767);   /* 1 in 4: ~23 ms */
             if (cho) sc[j] += (s * cho) >> 15;
             if (dly) sd[j] += (s * dly) >> 15;
             if (rev) sr[j] += (s * rev) >> 15;
@@ -597,6 +613,7 @@ static int gv_drum_step(const track_t *t, uint16_t *idx, uint32_t cnt)
     uint32_t r, i = *idx;
     for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
     if (r == 8u) return 1;
+    if (gv.magic == GV_MAGIC && !gv_track_heard(r)) return 0;   /* RYTHME cut, a solo elsewhere */
     if (gv.rhf[r]) { if (i & 1u) return 0; i = ((i >> 1) + (((cnt >> 4) & 1u) ? 8u : 0u)) & 15u; }
     if (gv.rrv[r] || (gv_prv && gv_pon(1))) i = 15u - (i & 15u);
     i = gv_loop(&gv_lpa[r], &gv_lpc[r], gv_plp && gv_pon(1) ? gv_plp : gv.rlp[r], i);
@@ -643,7 +660,7 @@ static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left
         uint32_t w;
         for (w = 0; w < 16u && GV_WKEY[w] != key; w++) {}
         if (!down) return;
-        if (w < 16u) { uint32_t r = w & 7u; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_hit_t[r] = song.tick;
+        if (w < 16u) { uint32_t r = w & 7u; { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_live_hit = 0; } gv_hit_t[r] = song.tick;
             if (gv_recq && song.playing) trk[GV_ROWTRK[r]].step[gv_pos & 15u].on = 1; }
         return;
     }
@@ -664,7 +681,7 @@ static void gv_keys_isr(uint32_t cur, uint32_t ch)
     uint32_t k, req = gv_hit_req;
     gv_hit_req = 0;
     for (k = 0; k < 8u; k++)
-        if ((req >> k) & 1u) { track_t *t = &trk[GV_ROWTRK[k]]; drum_hit(t, 110); gv_hit_t[k] = song.tick; }
+        if ((req >> k) & 1u) { track_t *t = &trk[GV_ROWTRK[k]]; { gv_live_hit = 1; drum_hit(t, 110); gv_live_hit = 0; } gv_hit_t[k] = song.tick; }
     if (gv_kp) {
         for (k = 0; k < 27u; k++) if ((ch >> k) & 1u) gv_play_key(k, (int)((cur >> k) & 1u));
         return;
@@ -673,7 +690,7 @@ static void gv_keys_isr(uint32_t cur, uint32_t ch)
         uint32_t bit = 1u << GV_BLACK[k];
         if (!(ch & bit)) continue;
         if (gv.sel < 8) {
-            if ((cur & bit) && k < 8u) { drum_hit(&trk[GV_ROWTRK[k]], 110); gv_hit_t[k] = song.tick; gv.sel = (int8_t)k;
+            if ((cur & bit) && k < 8u) { { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[k]], 110); gv_live_hit = 0; } gv_hit_t[k] = song.tick; gv.sel = (int8_t)k;
                 if (gv_recq && song.playing) trk[GV_ROWTRK[k]].step[gv_pos & 15u].on = 1; }
         } else {
             uint32_t i = (uint32_t)gv.sel - 8u;
