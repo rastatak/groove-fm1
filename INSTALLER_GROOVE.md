@@ -51,6 +51,9 @@ navigateur sur un FM-1 en 3D (souris, écran tactile ou clavier de l'ordinateur)
 `https://TON-NOM.github.io/groove-fm1/`, clique l'interrupteur **Power** au-dessus de la machine, puis joue.
 Ce que tu y vois et entends, c'est ce que fera la machine (au processeur près).
 
+Le même site contient aussi la **version web** (Groove Studio) : `https://TON-NOM.github.io/groove-fm1/studio/`
+(bouton **Studio** en haut du simulateur). Sa page « Installer » mène au simulateur et à l'installateur.
+
 ## 4. Installer sur le FM-1
 
 ### Le plus simple : l'installateur dans le navigateur (Chrome ou Edge)

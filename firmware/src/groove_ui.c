@@ -9,19 +9,21 @@
 static void play_press(void);
 static void gv_boot(void);
 
-enum { GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, GP_RYT, GP_MEL, GP_STY, GP_GRYT, GP_GMEL, GP_FX, GP_FXD, GP_SCL, GP_ENV, GP_FLT, GP_LFO,
-       GP_OSC, GP_MIX, GP_SON, GP_GLO, GP_SAVE, GP_N };
-static const char *const GP_T[GP_N] = {"LIVE", "LIVE RYT", "LIVE MEL", "FX LIVE", "RYTHME", "MELODIE", "STYLES", "GEN RYT", "GEN MEL",
-                                       "FX", "FX BATT", "GAMME", "ENV", "FILTRE", "LFO", "OSC", "MIX", "SON", "TEMPO", "BANQUE"};
+enum { GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, GP_RYT, GP_MEL, GP_STY, GP_VIS, GP_GRYT, GP_GMEL, GP_FXR, GP_FXA, GP_FXB, GP_FXD, GP_FXP,
+       GP_SCL, GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_MIX, GP_LRR, GP_SON, GP_GLO, GP_SAVE, GP_N };
+static const char *const GP_T[GP_N] = {"LIVE", "LIVE RYT", "LIVE MEL", "FX LIVE", "RYTHME", "MELODIE", "STYLES", "VISU", "GEN RYT",
+                                       "GEN MEL", "FX RECAP", "FX FILTRE", "FX ESPACE", "FX BATT", "FX PERF", "GAMME", "ENV", "FILTRE",
+                                       "LFO", "OSC", "MIX", "LOOP ROLL", "SON", "TEMPO", "BANQUE"};
+#define GV_PERFP(p) ((p) >= GP_FXA && (p) <= GP_FXP)   /* the FX pages with the pads (LOOP ROLL REVERSE held) */
 /* button -> its pages (B_* of panel.c); 0xFF = none */
-static const uint8_t GV_GRP[NB][4] = {
-    [B_HOME] = {GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX}, [B_SEQ] = {GP_RYT, GP_MEL, 0xFF, 0xFF},
-    [B_ARP] = {GP_STY, GP_GRYT, GP_GMEL, 0xFF},    [B_FX] = {GP_FX, GP_FXD, 0xFF, 0xFF},
-    [B_SCL] = {GP_SCL, 0xFF, 0xFF, 0xFF},          [B_ENV] = {GP_ENV, GP_FLT, GP_LFO, GP_OSC},
-    [B_LFO] = {GP_MIX, 0xFF, 0xFF, 0xFF},          [B_EDIT] = {GP_SON, 0xFF, 0xFF, 0xFF},
-    [B_GLO] = {GP_GLO, 0xFF, 0xFF, 0xFF},          [B_SAVE] = {GP_SAVE, 0xFF, 0xFF, 0xFF},
-    [B_PLAY] = {0xFF, 0xFF, 0xFF, 0xFF}, [B_REC] = {0xFF, 0xFF, 0xFF, 0xFF},
-    [B_OCTDN] = {0xFF, 0xFF, 0xFF, 0xFF}, [B_OCTUP] = {0xFF, 0xFF, 0xFF, 0xFF}};
+static const uint8_t GV_GRP[NB][5] = {
+    [B_HOME] = {GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, 0xFF}, [B_SEQ] = {GP_RYT, GP_MEL, 0xFF, 0xFF, 0xFF},
+    [B_ARP] = {GP_STY, GP_VIS, GP_GRYT, GP_GMEL, 0xFF},  [B_FX] = {GP_FXR, GP_FXA, GP_FXB, GP_FXD, GP_FXP},
+    [B_SCL] = {GP_SCL, 0xFF, 0xFF, 0xFF, 0xFF},          [B_ENV] = {GP_ENV, GP_FLT, GP_LFO, GP_OSC, 0xFF},
+    [B_LFO] = {GP_MIX, GP_LRR, 0xFF, 0xFF, 0xFF},        [B_EDIT] = {GP_SON, 0xFF, 0xFF, 0xFF, 0xFF},
+    [B_GLO] = {GP_GLO, 0xFF, 0xFF, 0xFF, 0xFF},          [B_SAVE] = {GP_SAVE, 0xFF, 0xFF, 0xFF, 0xFF},
+    [B_PLAY] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, [B_REC] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+    [B_OCTDN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, [B_OCTUP] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
 
 static struct {
     uint8_t page, btn, cur, sty, kp, dirty, init;
@@ -34,6 +36,9 @@ static struct {
     int8_t fxd;
     uint32_t fxa;
     int16_t byp[8][16];             /* FX LIVE: the value an effect had before its key cut it (-1 = not cut) */
+    uint8_t lock;                   /* FX pads: VERROU (a pad stays on when let go) */
+    uint32_t tap[4];                /* TAP TEMPO: the last taps */
+    uint32_t wprev;                 /* the white keys held (their release: the pads) */
 } gu = {.hold_b = NB};
 
 /* ------------------------------------------------------------- colours (the web app's palette, RGB565) --- */
@@ -74,11 +79,15 @@ static void gv_say(const char *s)
 enum { KN_NONE, KN_TVOL, KN_RVOL, KN_SWING, KN_TAR, KN_RAR, KN_STYLE, KN_GMR, KN_PITCH, KN_BPM, KN_AUTO, KN_PROG, KN_ROOT,
        KN_SCALE, KN_CUT, KN_RES, KN_FTYPE, KN_ENV, KN_ATT, KN_DEC, KN_GL, KN_LFR, KN_LFD, KN_LFW, KN_LFS, KN_WAVE, KN_OCT,
        KN_DIST, KN_DLY, KN_REV, KN_DMIX, KN_DTIME, KN_RSIZE, KN_RDAMP, KN_SNOTE, KN_SLEN, KN_SACC, KN_SOFF, KN_ROW,
-       KN_MODEL, KN_RTUNE, KN_RDEC, KN_RDIST, KN_RREV, KN_FX0, KN_FX1, KN_FX2, KN_FX3, KN_N };
+       KN_MODEL, KN_RTUNE, KN_RDEC, KN_RDIST, KN_RREV, KN_FX0, KN_FX1, KN_FX2, KN_FX3,
+       KN_DJ, KN_MF, KN_HP, KN_MQ, KN_XS, KN_XD, KN_XR, KN_PTG, KN_LOCK, KN_RLP, KN_RRL, KN_TLP, KN_TRL, KN_TBW,
+       KN_DVOL, KN_DDIST, KN_DDLY, KN_DREV, KN_N };
 static const char *const KN_L[KN_N] = {"", "VOLUME", "VOLUME", "SWING", "AUTO", "AUTO", "STYLE", "RYTHME", "PITCH", "BPM",
     "AUTO RYT", "ACCORDS", "TONIQUE", "GAMME", "CUTOFF", "RESO", "TYPE", "ENV", "ATTAQUE", "DECAY", "GLIDE", "VITESSE",
     "PROFOND.", "FORME", "CALAGE", "ONDE", "OCTAVE", "DISTO", "DELAY", "REVERB", "DLY MIX", "DLY TEMPS", "REV TAILLE",
-    "REV DAMP", "NOTE", "DUREE", "ACC SLIDE", "DECALAGE", "LIGNE", "MODELE", "ACCORD", "DECAY", "DISTO", "REVERB", "", "", "", ""};
+    "REV DAMP", "NOTE", "DUREE", "ACC SLIDE", "DECALAGE", "LIGNE", "MODELE", "ACCORD", "DECAY", "DISTO", "REVERB", "", "", "", "",
+    "FILTRE DJ", "COUPE-HAUT", "COUPE-BAS", "RESO", "DISTO", "ECHO", "REVERB", "CIBLE", "VERROU", "LOOP", "ROLL", "LOOP", "ROLL",
+    "SENS", "VOLUME", "DISTO", "DELAY", "REVERB"};
 static gv_step_t *gv_stp(void) { return &gv_tr()->st[gu.cur & 15u]; }
 static track_t *gv_rt(void) { return &trk[GV_ROWTRK[gv.sel & 7]]; }
 /* ------------------------------------------------------------- FX LIVE: 16 effects on 4 pages, on a target --- */
@@ -172,6 +181,9 @@ static void gv_fxbyp(uint32_t e)                       /* a white key 9-16: the 
     else { *b = (int16_t)gv_fxget(e); gv_fxset(e, FE_OFF[e]); gv_fmt(m, "%s COUPE", FE_L[e]); }
     gv_say(m);
 }
+static const uint8_t GV_LPV[7] = {0, 1, 2, 3, 4, 6, 8}, GV_RLV[4] = {0, 2, 3, 4};   /* LOOP / ROLL choices (web: LOOP ROLL) */
+static int32_t gv_lpix(uint8_t v) { int32_t k; for (k = 0; k < 7; k++) if (GV_LPV[k] == v) return k; return 0; }
+static int32_t gv_rlix(uint8_t v) { int32_t k; for (k = 0; k < 4; k++) if (GV_RLV[k] == v) return k; return 0; }
 static void gv_krange(uint32_t id, int32_t *mn, int32_t *mx)
 {
     *mn = 0; *mx = 127;
@@ -193,6 +205,10 @@ static void gv_krange(uint32_t id, int32_t *mn, int32_t *mx)
     case KN_ROW: *mx = 7; break;
     case KN_MODEL: *mx = NMODELS - 1; break;
     case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0, c = gv_fxn(e); *mx = c ? (int32_t)c - 1 : 127; break; }
+    case KN_PTG: *mx = 2; break;
+    case KN_LOCK: case KN_TBW: *mx = 1; break;
+    case KN_RLP: case KN_TLP: *mx = 6; break;
+    case KN_RRL: case KN_TRL: *mx = 3; break;
     default: break;
     }
 }
@@ -217,6 +233,16 @@ static int32_t gv_kget(uint32_t id)
     case KN_ROW: return gv.sel & 7; case KN_MODEL: return r->p[P_MODEL]; case KN_RTUNE: return r->p[P_E0];
     case KN_RDEC: return r->p[P_E1]; case KN_RDIST: return r->p[P_DIST]; case KN_RREV: return r->p[P_REV];
     case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0; return gv_fxn(e) ? gv_fxix(e) : gv_fxget(e); }
+    case KN_DJ: return gv.hp ? 64 + gv.hp / 2 : gv.mf >= 127u ? 64 : gv.mf / 2;
+    case KN_MF: return gv.mf; case KN_HP: return gv.hp; case KN_MQ: return gv.mq; case KN_XS: return gv.xs;
+    case KN_XD: return gv.xd; case KN_XR: return gv.xr; case KN_PTG: return gv_ptg; case KN_LOCK: return gu.lock;
+    case KN_RLP: return gv_lpix(gv.rlp[gv.sel & 7]); case KN_RRL: return gv_rlix(gv.rrl[gv.sel & 7]);
+    case KN_TLP: return gv_lpix(t->lp); case KN_TRL: return gv_rlix(t->rl); case KN_TBW: return t->bw;
+    case KN_DVOL: case KN_DDIST: case KN_DDLY: case KN_DREV: {
+        static const uint8_t PP[4] = {P_LEVEL, P_DIST, P_DLY, P_REV};
+        int32_t a = 0; uint32_t k;
+        for (k = 0; k < 8u; k++) a += trk[GV_ROWTRK[k]].p[PP[id - KN_DVOL]];
+        return a / 8; }
     default: return 0;
     }
 }
@@ -253,6 +279,20 @@ static void gv_kset(uint32_t id, int32_t v)
         gv_fxset(e, e == FE_RL ? FE_RLO[v & 3] : e == FE_LP ? FE_LPO[v % 5] : v);
         gu.byp[gu.fxt][e] = -1;
         break; }
+    case KN_DJ:                                       /* left: the low-pass closes; right: the high-pass opens */
+        if (v < 64) { gv.mf = (uint8_t)(v * 2); gv.hp = 0; } else if (v > 64) { gv.mf = 127; gv.hp = (uint8_t)((v - 64) * 2); }
+        else { gv.mf = 127; gv.hp = 0; }
+        break;
+    case KN_MF: gv.mf = (uint8_t)v; break; case KN_HP: gv.hp = (uint8_t)v; break; case KN_MQ: gv.mq = (uint8_t)v; break;
+    case KN_XS: gv.xs = (uint8_t)v; break; case KN_XD: gv.xd = (uint8_t)v; break; case KN_XR: gv.xr = (uint8_t)v; break;
+    case KN_PTG: gv_ptg = (uint8_t)v; break; case KN_LOCK: gu.lock = (uint8_t)v; break;
+    case KN_RLP: gv.rlp[gv.sel & 7] = GV_LPV[v % 7]; break; case KN_RRL: gv.rrl[gv.sel & 7] = GV_RLV[v & 3]; break;
+    case KN_TLP: t->lp = GV_LPV[v % 7]; break; case KN_TRL: t->rl = GV_RLV[v & 3]; break; case KN_TBW: t->bw = (uint8_t)v; break;
+    case KN_DVOL: case KN_DDIST: case KN_DDLY: case KN_DREV: {
+        static const uint8_t PP[4] = {P_LEVEL, P_DIST, P_DLY, P_REV};
+        uint32_t k;
+        for (k = 0; k < 8u; k++) trk[GV_ROWTRK[k]].p[PP[id - KN_DVOL]] = (int16_t)v;
+        break; }
     default: break;
     }
 }
@@ -280,6 +320,13 @@ static void gv_kfmt(uint32_t id, int32_t v, char *b)
     case KN_MODEL: gv_fmt(b, "%s", DMODELS[(uint32_t)v % NMODELS].name); return;
     case KN_BPM: case KN_OCT: gv_fmt(b, "%d", (int)v); return;
     case KN_SWING: gv_fmt(b, "%d%%", (int)v); return;
+    case KN_DJ: if (v == 64) { gv_fmt(b, "OUVERT"); } else if (v < 64) { gv_fmt(b, "GRAVE %d", (int)(64 - v)); } else gv_fmt(b, "AIGU %d", (int)(v - 64)); return;
+    case KN_MF: if (v >= 127) { gv_fmt(b, "OUVERT"); return; } break;
+    case KN_HP: if (!v) { gv_fmt(b, "OUVERT"); return; } break;
+    case KN_PTG: { static const char *const T[3] = {"TOUT", "RYTHME", "MELODIE"}; gv_fmt(b, "%s", T[v % 3]); return; }
+    case KN_LOCK: case KN_TBW: gv_fmt(b, id == KN_TBW ? (v ? "ARRIERE" : "AVANT") : (v ? "ON" : "OFF")); return;
+    case KN_RLP: case KN_TLP: if (v) { gv_fmt(b, "%d PAS", (int)GV_LPV[v % 7]); } else gv_fmt(b, "OFF"); return;
+    case KN_RRL: case KN_TRL: if (v) { gv_fmt(b, "X%d", (int)GV_RLV[v & 3]); } else gv_fmt(b, "OFF"); return;
     case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: {
         uint32_t e = gu.fxpg * 4u + id - KN_FX0;
         if (e == FE_RL) { if (v) { gv_fmt(b, "X%d", (int)FE_RLO[v & 3]); } else gv_fmt(b, "OFF"); return; }
@@ -296,32 +343,139 @@ static void gv_knobs(uint8_t *k)
     int d = gv_isd();
     k[0] = k[1] = k[2] = k[3] = KN_NONE;
 #define K4(a, b, c, e) do { k[0] = a; k[1] = b; k[2] = c; k[3] = e; } while (0)
-    switch (gu.page) {
-    case GP_LIVE: K4(d ? KN_RVOL : KN_TVOL, KN_BPM, KN_SWING, d ? KN_RAR : KN_TAR); break;
+    switch (gu.page) {                                 /* = the web app's pages (fm1.js PAGES) */
+    case GP_LIVE: K4(d ? KN_RVOL : KN_TVOL, KN_DJ, KN_SWING, d ? KN_RAR : KN_TAR); break;
     case GP_LRYT: K4(KN_RVOL, KN_RAR, KN_STYLE, KN_GMR); break;
     case GP_LMEL: K4(KN_TVOL, KN_TAR, KN_PITCH, KN_WAVE); break;
     case GP_LFX: K4(KN_FX0, KN_FX1, KN_FX2, KN_FX3); break;
-    case GP_RYT: K4(KN_ROW, KN_RVOL, KN_MODEL, KN_RTUNE); break;
+    case GP_RYT: K4(KN_ROW, KN_RVOL, KN_RLP, KN_RRL); break;
     case GP_MEL: K4(KN_SNOTE, KN_SLEN, KN_SACC, KN_SOFF); break;
     case GP_STY: K4(KN_STYLE, KN_BPM, KN_AUTO, KN_SWING); break;
+    case GP_VIS: K4(KN_BPM, KN_DJ, KN_SWING, KN_AUTO); break;
     case GP_GRYT: K4(KN_STYLE, KN_AUTO, KN_RAR, KN_SWING); break;
     case GP_GMEL: K4(KN_PROG, KN_TAR, KN_SCALE, KN_ROOT); break;
-    case GP_FX: K4(KN_DMIX, KN_DTIME, KN_RSIZE, KN_RDAMP); break;
-    case GP_FXD: K4(KN_RVOL, KN_RDIST, KN_RREV, KN_RDEC); break;
+    case GP_FXR: K4(KN_DJ, KN_XD, KN_XR, KN_XS); break;
+    case GP_FXA: K4(KN_MF, KN_HP, KN_MQ, KN_PTG); break;
+    case GP_FXB: K4(KN_XD, KN_XR, KN_XS, KN_NONE); break;
+    case GP_FXD: K4(KN_DVOL, KN_DDIST, KN_DDLY, KN_DREV); break;
+    case GP_FXP: K4(KN_PTG, KN_NONE, KN_LOCK, KN_NONE); break;
     case GP_SCL: K4(KN_ROOT, KN_SCALE, KN_PROG, KN_PITCH); break;
     case GP_ENV: K4(KN_ATT, KN_DEC, KN_ENV, KN_GL); break;
     case GP_FLT: K4(KN_CUT, KN_RES, KN_FTYPE, KN_ENV); break;
     case GP_LFO: K4(KN_LFR, KN_LFD, KN_LFW, KN_LFS); break;
     case GP_OSC: K4(KN_WAVE, KN_OCT, KN_PITCH, KN_TVOL); break;
-    case GP_MIX: if (d) K4(KN_RVOL, KN_RDIST, KN_RREV, KN_RAR); else K4(KN_TVOL, KN_DIST, KN_DLY, KN_REV); break;
+    case GP_MIX: if (d) K4(KN_RVOL, KN_RAR, KN_DVOL, KN_DREV); else K4(KN_TVOL, KN_DIST, KN_DLY, KN_REV); break;
+    case GP_LRR: if (d) K4(KN_RLP, KN_RRL, KN_ROW, KN_RAR); else K4(KN_TLP, KN_TRL, KN_TBW, KN_TAR); break;
     case GP_SON: if (d) K4(KN_MODEL, KN_RTUNE, KN_RDEC, KN_RVOL); else K4(KN_WAVE, KN_OCT, KN_CUT, KN_DEC); break;
     case GP_GLO: K4(KN_BPM, KN_SWING, KN_STYLE, KN_AUTO); break;
     default: break;
     }
-    if (!d && (gu.page == GP_RYT || gu.page == GP_FXD)) gv.sel = 0;
+    if (!d && gu.page == GP_RYT) gv.sel = 0;
     if (d && (gu.page == GP_MEL || gu.page == GP_LMEL || gu.page == GP_GMEL || gu.page == GP_ENV || gu.page == GP_FLT ||
               gu.page == GP_LFO || gu.page == GP_OSC))
         gv.sel = 8;
+}
+
+/* ------------------------------------------------------------- the web app's key pages --- */
+static const char *const K_FXR[16] = {"COUPE-HAUT", "COUPE-BAS", "RESONANCE", "ECHO", "REVERB", "DISTO", "DISTO BAT", "DELAY BAT",
+                                      "REVERB BAT", "LOOP ROLL", "DISTO PIST", "ECHO PIST", "REV PIST", "LFO PIST", "MOUVEMENTS", "TOUT COUPER"};
+static const char *const K_PERF[16] = {"LOOP 1", "LOOP 2", "LOOP 4", "LOOP 8", "ROLL X2", "ROLL X3", "ROLL X4", "REVERSE",
+                                       "TOUT", "RYTHME", "MELODIE", "VERROU", "REC FX", "REJOUE", "EFFACER", "ZERO"};
+static const char *const K_LRR[16] = {"LOOP OFF", "LOOP 1", "LOOP 2", "LOOP 3", "LOOP 4", "LOOP 6", "LOOP 8", "",
+                                      "ROLL OFF", "ROLL X2", "ROLL X3", "ROLL X4", "", "SENS <", "REVERSE", ""};
+static const char *const K_VIS[16] = {"RYTHME ?", "MELODIES ?", "TOUT ?", "VARIER RYT", "VARIER MEL", "PLAY", "", "", "", "", "", "", "", "", "", ""};
+static const char *const K_GLO[16] = {"TAP TEMPO", "", "ALGO PAGES", "ALGO BPM", "ALGO DJ", "ALGO VOLUME", "ALGO RYTHMES", "ALGO SWING",
+                                      "", "", "", "", "", "", "", "HORTATOR"};
+static const uint8_t K_PLP[4] = {1, 2, 4, 8};
+static int gv_rows_any(uint32_t pp) { uint32_t k; for (k = 0; k < 8u; k++) if (trk[GV_ROWTRK[k]].p[pp]) return 1; return 0; }
+static int gv_trk_any(uint32_t f) { uint32_t i; for (i = 0; i < GV_NT; i++) if (*gv_tfld(&gv.t[i], f)) return 1; return 0; }
+static int gv_lr_any(void)
+{
+    uint32_t i;
+    if (gv_plp || gv_prl) return 1;
+    for (i = 0; i < 8u; i++) if (gv.rlp[i] || gv.rrl[i]) return 1;
+    for (i = 0; i < GV_NT; i++) if (gv.t[i].lp || gv.t[i].rl) return 1;
+    return 0;
+}
+static int gv_fxr_on(uint32_t j)                      /* FX RECAP: is this effect at work */
+{
+    switch (j) {
+    case 0: return gv.mf < 127u; case 1: return gv.hp > 0u; case 2: return gv.mq > 0u; case 3: return gv.xd > 0u;
+    case 4: return gv.xr > 0u; case 5: return gv.xs > 0u; case 6: return gv_rows_any(P_DIST); case 7: return gv_rows_any(P_DLY);
+    case 8: return gv_rows_any(P_REV); case 9: return gv_lr_any(); case 10: return gv_trk_any(FE_DIST); case 11: return gv_trk_any(FE_DLY);
+    case 12: return gv_trk_any(FE_REV); case 13: return gv_trk_any(FE_LFD); case 15: { uint32_t k; for (k = 0; k < 14u; k++) if (gv_fxr_on(k)) return 1; return 0; }
+    default: return 0;
+    }
+}
+static void gv_fxr_cut(uint32_t j)                    /* FX RECAP: a key cuts that effect */
+{
+    uint32_t i;
+    switch (j) {
+    case 0: gv.mf = 127; break; case 1: gv.hp = 0; break; case 2: gv.mq = 0; break; case 3: gv.xd = 0; break;
+    case 4: gv.xr = 0; break; case 5: gv.xs = 0; break;
+    case 6: case 7: case 8: { static const uint8_t PP[3] = {P_DIST, P_DLY, P_REV}; for (i = 0; i < 8u; i++) trk[GV_ROWTRK[i]].p[PP[j - 6u]] = 0; break; }
+    case 9: gv_plp = gv_prl = 0; for (i = 0; i < 8u; i++) gv.rlp[i] = gv.rrl[i] = 0; for (i = 0; i < GV_NT; i++) gv.t[i].lp = gv.t[i].rl = 0; break;
+    case 10: case 11: case 12: case 13: { static const uint8_t FF[4] = {FE_DIST, FE_DLY, FE_REV, FE_LFD}; for (i = 0; i < GV_NT; i++) *gv_tfld(&gv.t[i], FF[j - 10u]) = 0; break; }
+    case 15: for (i = 0; i < 14u; i++) gv_fxr_cut(i); break;
+    default: break;
+    }
+}
+static int gv_perf_on(uint32_t j)
+{
+    if (j < 4u) return gv_plp == K_PLP[j];
+    if (j < 7u) return gv_prl == j - 2u;
+    if (j == 7u) return gv_prv != 0u;
+    if (j < 11u) return gv_ptg == j - 8u;
+    return j == 11u && gu.lock;
+}
+static void gv_perf_key(uint32_t j, int down)         /* the FX pads: on while held (VERROU: until pressed again) */
+{
+    if (j < 8u) {
+        int on = gv_perf_on(j);
+        if (down && gu.lock && on) on = -1;           /* latched and pressed again: off */
+        else if (!down && gu.lock) return;
+        if (down && on != -1) { if (j < 4u) gv_plp = K_PLP[j]; else if (j < 7u) gv_prl = (uint8_t)(j - 2u); else gv_prv = 1; }
+        else { if (j < 4u) { if (on) gv_plp = 0; } else if (j < 7u) { if (on) gv_prl = 0; } else gv_prv = 0; }
+        return;
+    }
+    if (!down) return;
+    if (j < 11u) { gv_ptg = (uint8_t)(j - 8u); gv_say(K_PERF[j]); }
+    else if (j == 11u) { gu.lock ^= 1u; if (!gu.lock) gv_plp = gv_prl = gv_prv = 0; gv_say(gu.lock ? "VERROU : LES PADS RESTENT" : "VERROU COUPE"); }
+    else if (j < 15u) gv_say("MOUVEMENTS : VERSION WEB SEULEMENT");
+    else { gv_plp = gv_prl = gv_prv = 0; gv.mf = 127; gv.hp = 0; gv.mq = 0; gv.xs = 0; gv.xd = 0; gv.xr = 0; gv_say("EFFETS A ZERO"); }
+}
+static int gv_lrr_on(uint32_t j)                      /* MIX / LOOP ROLL: the shown track's loop, roll, way */
+{
+    int d = gv_isd();
+    uint8_t lp = d ? gv.rlp[gv.sel & 7] : gv_tr()->lp, rl = d ? gv.rrl[gv.sel & 7] : gv_tr()->rl;
+    if (j < 7u) return lp == GV_LPV[j];
+    if (j >= 8u && j < 12u) return rl == GV_RLV[j - 8u];
+    if (j == 13u) return !d && gv_tr()->bw;
+    if (j == 14u) return d ? gv.rrv[gv.sel & 7] != 0u : gv_tr()->rv != 0u;
+    return 0;
+}
+static void gv_lrr_key(uint32_t j)
+{
+    int d = gv_isd();
+    gv_trk_t *t = gv_tr();
+    if (j < 7u) { if (d) gv.rlp[gv.sel & 7] = GV_LPV[j]; else t->lp = GV_LPV[j]; }
+    else if (j >= 8u && j < 12u) { if (d) gv.rrl[gv.sel & 7] = GV_RLV[j - 8u]; else t->rl = GV_RLV[j - 8u]; }
+    else if (j == 13u && !d) t->bw ^= 1u;
+    else if (j == 14u) { if (d) gv.rrv[gv.sel & 7] ^= 1u; else t->rv ^= 1u; }
+}
+static void gv_tap(void)                               /* TAP TEMPO: the mean of the last taps (2 s apart at most) */
+{
+    uint32_t n = 0, k;
+    char m[24];
+    if (gu.tap[0] && fm1_ms - gu.tap[0] > 2000u) memset(gu.tap, 0, sizeof gu.tap);
+    for (k = 3u; k > 0u; k--) gu.tap[k] = gu.tap[k - 1u];
+    gu.tap[0] = fm1_ms;
+    for (k = 0; k < 4u && gu.tap[k]; k++) n++;
+    if (n >= 2u) {
+        song.g[G_BPM] = (int16_t)gv_clamp((int32_t)(60000u * (n - 1u) / (gu.tap[0] - gu.tap[n - 1u] + 1u)), 40, 240);
+        gv_fmt(m, "TAP %d BPM", (int)song.g[G_BPM]);
+        gv_say(m);
+    } else gv_say("TAP : ENCORE");
 }
 
 /* ------------------------------------------------------------- pages: the white keys --- */
@@ -329,6 +483,7 @@ static int gv_live_page(void) { return gu.page <= GP_LMEL; }
 static void gv_white(uint32_t j, int down)
 {
     gv_trk_t *t = gv_tr();
+    if (GV_PERFP(gu.page)) { gv_perf_key(j, down); gu.dirty = 1; return; }
     if (!down) return;
     if (gu.kp && gv_live_page()) {                     /* JEU: the white keys play too (ISR: gv_keys_isr) */
         return;
@@ -372,11 +527,20 @@ static void gv_white(uint32_t j, int down)
     case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC:
         if (j < 3u) t->wave = (uint8_t)j; else if (j >= 4u && j < 10u) t->oct = (uint8_t)(j - 3u); else if (j >= 13u) t->ftype = (uint8_t)(j - 13u);
         break;
-    case GP_MIX:
-        if (!gv_isd() && j == 13u) t->bw ^= 1u;
+    case GP_MIX: case GP_LRR: gv_lrr_key(j); break;
+    case GP_FXR: gv_fxr_cut(j); break;
+    case GP_VIS:
+        if (j == 0u) { gv_gen_rhythm(); gv_say("NOUVEAU RYTHME"); }
+        else if (j == 1u) { uint32_t i; for (i = 0; i < GV_NT; i++) gv_gen_mel(i); gv_say("NOUVELLES MELODIES"); }
+        else if (j == 2u) { gv_gen_all(); gv_say("TOUT REGENERE"); }
+        else if (j == 3u) { gv_vary_rhythm(); gv_say("RYTHME VARIE"); }
+        else if (j == 4u) { uint32_t i; for (i = 0; i < GV_NT; i++) gv_vary_mel(i); gv_say("MELODIES VARIEES"); }
+        else if (j == 5u) play_press();
         break;
     case GP_GLO:
-        if (j == 15u) { gv_on = 0; ui.force = 1; }
+        if (j == 0u) gv_tap();
+        else if (j >= 2u && j < 8u) { gv.algo = (uint8_t)(j - 2u); gv_say(K_GLO[j]); }
+        else if (j == 15u) { gv_on = 0; ui.force = 1; }
         break;
     default: break;
     }
@@ -392,7 +556,7 @@ static void gv_select(int32_t s)
     case GP_GLO: song.g[G_BPM] = (int16_t)gv_clamp(song.g[G_BPM] + s, 40, 240); break;
     case GP_LMEL: case GP_GMEL: case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC:
         gv.sel = (int8_t)(8 + (((gv.sel - 8) + s) % 6 + 6) % 6); break;
-    case GP_LRYT: case GP_GRYT: case GP_FXD:
+    case GP_LRYT: case GP_GRYT:
         gv.sel = (int8_t)((((gv.sel & 7) + s) % 8 + 8) % 8); break;
     default: gv.sel = (int8_t)(((gv.sel + s) % 14 + 14) % 14); break;
     }
@@ -400,7 +564,7 @@ static void gv_select(int32_t s)
 static void gv_go(uint32_t b)
 {
     uint32_t k, n = 0;
-    for (k = 0; k < 4u && GV_GRP[b][k] != 0xFF; k++) n++;
+    for (k = 0; k < 5u && GV_GRP[b][k] != 0xFF; k++) n++;
     if (!n) return;
     if (gu.btn == b) {
         for (k = 0; k < n && GV_GRP[b][k] != gu.page; k++) {}
@@ -424,10 +588,9 @@ static void gv_long(uint32_t b)
         uint32_t e;
         for (e = 0; e < FE_N; e++) if (FE_OFF[e] >= 0) { gv_fxset(e, FE_OFF[e]); gu.byp[gu.fxt][e] = -1; }
         gv_say("FX LIVE A ZERO");
-    } else if (b == B_FX) {
-        song.g[G_DMIX] = 0; song.g[G_RSIZE] = 64;
-        if (gu.page == GP_FXD) { track_t *r = gv_rt(); r->p[P_DIST] = 0; r->p[P_REV] = 0; }
-        else { uint32_t i; for (i = 0; i < GV_NT; i++) { gv.t[i].dist = 0; gv.t[i].lfd = 0; } }
+    } else if (b == B_FX) {                           /* the web app's: the page's effects back to zero */
+        if (gu.page == GP_FXD) { uint32_t k; for (k = 0; k < 8u; k++) { track_t *r = &trk[GV_ROWTRK[k]]; r->p[P_DIST] = 0; r->p[P_DLY] = 0; r->p[P_REV] = 0; } }
+        else { gv.mf = 127; gv.hp = 0; gv.mq = 0; gv.xs = 0; gv.xd = 0; gv.xr = 0; gv_plp = gv_prl = gv_prv = 0; }
         gv_say("EFFETS A ZERO");
     }
     gu.flash = fm1_ms;
@@ -481,6 +644,11 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
     }
     for (j = 0; j < 16u; j++)
         if ((notes >> STEP_KEY[j]) & 1u) gv_white(j, 1);
+    {   /* let go: the FX pads */
+        uint32_t cur = fm1_in.notes, gone = gu.wprev & ~cur;
+        for (j = 0; j < 16u; j++) if ((gone >> STEP_KEY[j]) & 1u) gv_white(j, 0);
+        gu.wprev = cur;
+    }
     gv_knobs(kn);
     for (j = 0; j < 4u; j++)
         if ((s = panel_enc(EN_K1 + j)) != 0 && kn[j] != KN_NONE) {
@@ -492,7 +660,7 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
         }
     if ((s = panel_enc(EN_SELECT)) != 0) { gv_select(s); gu.dirty = 1; }
     if ((s = panel_enc(EN_PRESET)) != 0) {
-        if (gu.page == GP_RYT || gu.page == GP_LRYT || gu.page == GP_GRYT || gu.page == GP_FXD) gv.sel = (int8_t)(((gv.sel & 7) + s + 8) % 8);
+        if (gu.page == GP_RYT || gu.page == GP_LRYT || gu.page == GP_GRYT) gv.sel = (int8_t)(((gv.sel & 7) + s + 8) % 8);
         else if (gu.page == GP_MEL || gu.page == GP_LMEL || gu.page == GP_GMEL) gv.sel = (int8_t)(8 + ((gv.sel - 8 + s) % 6 + 6) % 6);
         else gv.sel = (int8_t)(((gv.sel + s) % 14 + 14) % 14);
         gu.dirty = 1;
@@ -505,13 +673,24 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
             { static const char *const PT[4] = {"A : FILTRE RESO DISTO ECHO", "B : REVERB WOBBLE VITESSE VOL", "C : CHORUS ROLL SAUTS REVERSE",
                                                 "D : LOOP CRUSH GATE DEMI"}; gv_say(PT[gu.fxpg]); }
         } else if (gv_live_page()) { gu.kp = s > 0; gv_say(gu.kp ? "MODE JEU : LE CLAVIER JOUE" : "MODE COUPURES"); }
-        else {                                        /* ALGORITHM: every page in turn */
-            static const uint8_t ORD[] = {GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, GP_RYT, GP_MEL, GP_STY, GP_GRYT, GP_GMEL, GP_FX, GP_FXD,
-                                          GP_SCL, GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_MIX, GP_SON, GP_GLO, GP_SAVE};
-            uint32_t k, n = sizeof ORD;
-            for (k = 0; k < n && ORD[k] != gu.page; k++) {}
-            gu.page = ORD[(k + n + (uint32_t)(s > 0 ? 1 : n - 1)) % n];
-            for (b = 0; b < NB; b++) for (k = 0; k < 4u; k++) if (GV_GRP[b][k] == gu.page) gu.btn = (uint8_t)b;
+        else if (gv.algo == 0u) {                     /* ALGORITHM: every page in turn (GLO: or a setting) */
+            uint32_t k, n = GP_N;
+            gu.page = (uint8_t)((gu.page + n + (uint32_t)(s > 0 ? 1 : n - 1)) % n);
+            for (b = 0; b < NB; b++) for (k = 0; k < 5u; k++) if (GV_GRP[b][k] == gu.page) gu.btn = (uint8_t)b;
+            if (gu.page == GP_STY) gu.sty = gv.style;
+        } else {
+            static const uint8_t AK[6] = {KN_NONE, KN_BPM, KN_DJ, KN_TVOL, KN_NONE, KN_SWING};
+            char m[32], v[20];
+            uint32_t id = gv.algo == 3u && gv_isd() ? KN_RVOL : AK[gv.algo % 6u];
+            if (gv.algo == 4u) { gv_gen_rhythm(); gv_say("NOUVEAU RYTHME"); }
+            else {
+                int32_t mn, mx;
+                gv_krange(id, &mn, &mx);
+                gv_kset(id, gv_clamp(gv_kget(id) + s, mn, mx));
+                gv_kfmt(id, gv_kget(id), v);
+                gv_fmt(m, "%s %s", KN_L[id], v);
+                gv_say(m);
+            }
         }
         gu.dirty = 1;
     }
@@ -577,9 +756,27 @@ static void gv_draw_foot(void)
         gv_krange(kn[i], &mn, &mx);
         v = gv_kget(kn[i]);
         cv_knob(cx, 200 - gv_oy, 9, mx > mn ? (v - mn) * 1000 / (mx - mn) : 0, -1, i & 1u ? GC_C : GC_A);
-        G_TC(cx, 216, 1, kn[i] >= KN_FX0 ? (gu.fxt == 0u && FE_LD[gu.fxpg * 4u + i] ? FE_LD[gu.fxpg * 4u + i] : FE_L[gu.fxpg * 4u + i]) : KN_L[kn[i]], GC_M);
+        G_TC(cx, 216, 1, kn[i] >= KN_FX0 && kn[i] <= KN_FX3 ? (gu.fxt == 0u && FE_LD[gu.fxpg * 4u + i] ? FE_LD[gu.fxpg * 4u + i] : FE_L[gu.fxpg * 4u + i]) : KN_L[kn[i]], GC_M);
         gv_kfmt(kn[i], v, b);
         G_TC(cx, G_TW(2, b) > 58 ? 228 : 226, G_TW(2, b) > 58 ? 1u : 2u, b, GC_T);
+    }
+}
+static void gv_grid16(const char *const *lab, int32_t y0, int32_t hh, uint16_t ink)   /* the 16 white keys, as the web's labels */
+{
+    uint32_t j;
+    int32_t ch = hh / 4;
+    for (j = 0; j < 16u; j++) {
+        int on = 0, x = 2 + (int32_t)(j % 4u) * 59, y = y0 + (int32_t)(j / 4u) * ch;
+        if (!lab[j][0]) continue;
+        switch (gu.page) {
+        case GP_FXR: on = gv_fxr_on(j); break;
+        case GP_FXA: case GP_FXB: case GP_FXP: on = gv_perf_on(j); break;
+        case GP_MIX: case GP_LRR: on = gv_lrr_on(j); break;
+        case GP_GLO: on = (j >= 2u && j < 8u && gv.algo == j - 2u); break;
+        default: break;
+        }
+        G_R(x, y, 56, ch - 3, on ? ink : GC_P2);
+        G_TC(x + 28, y + ch / 2 - 4, 1, lab[j], on ? GC_BG : GC_M);
     }
 }
 static void gv_draw_body(void)
@@ -783,17 +980,17 @@ static void gv_draw_body(void)
             }
         }
         break; }
-    case GP_FX: case GP_FXD: case GP_MIX: case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC: case GP_SON: {
+    case GP_FXD: case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC: case GP_SON: {
         uint8_t kn[4];
         gv_knobs(kn);
-        G_TC(120, 40, 2, gu.page == GP_FX ? "DELAY ET REVERB GENERAUX" : gv_name(gv.sel), gv_col(gv.sel));
+        G_TC(120, 40, 2, gu.page == GP_FXD ? "TOUTE LA BATTERIE" : gv_name(gv.sel), gu.page == GP_FXD ? GC_C : gv_col(gv.sel));
         for (i = 0; i < 4u; i++) {
             int32_t mn, mx, v, x = 22 + (int32_t)i * 56, h = 110;
             if (kn[i] == KN_NONE) continue;
             gv_krange(kn[i], &mn, &mx);
             v = mx > mn ? (gv_kget(kn[i]) - mn) * h / (mx - mn) : 0;
             G_R(x, 56, 24, h, GC_P);
-            G_R(x, 56 + h - v, 24, v, gu.page == GP_FX ? GC_C : gv_col(gv.sel));
+            G_R(x, 56 + h - v, 24, v, gu.page == GP_FXD ? GC_C : gv_col(gv.sel));
         }
         if (gu.page == GP_LFO && t->lfd) {             /* the LFO's wave, moving */
             int32_t px = 0, py = 0;
@@ -822,12 +1019,44 @@ static void gv_draw_body(void)
         break;
     case GP_GLO:
         gv_fmt(b, "%d", (int)song.g[G_BPM]);
-        G_TC(120, 60, 8, b, GC_Y);
-        G_TC(120, 118, 2, "BPM", GC_M);
-        G_TC(120, 150, 1, "TOUCHE 16 : PAGES HORTATOR (RETOUR : ENV + ARP)", GC_M);
+        G_TC(120, 40, 6, b, GC_Y);
+        G_TC(120, 84, 1, "BPM", GC_M);
+        gv_grid16(K_GLO, 96, 80, GC_A);
         break;
+    case GP_FXR:
+        G_TC(120, 36, 1, "LES EFFETS EN ROUTE (TOUCHE : LE COUPER)", GC_M);
+        gv_grid16(K_FXR, 48, 132, GC_C);
+        break;
+    case GP_FXA: case GP_FXB: case GP_FXP: {
+        static const char *const TG[3] = {"TOUT", "RYTHME", "MELODIE"};
+        gv_fmt(b, "PADS SUR : %s%s", TG[gv_ptg % 3u], gu.lock ? "  VERROU" : "");
+        G_TC(120, 36, 1, b, GC_Y);
+        gv_grid16(K_PERF, 48, 132, GC_A);
+        break; }
+    case GP_MIX: case GP_LRR:
+        G_TC(120, 36, 1, gv_name(gv.sel), gv_col(gv.sel));
+        gv_grid16(K_LRR, 48, 132, gv_col(gv.sel));
+        break;
+    case GP_VIS: {                                     /* the style, the beat, the little orange monster dancing */
+        uint32_t bt = song.playing ? (uint32_t)(gv_pos & 3u) : 0u, ph = song.playing ? (uint32_t)(gv_acc_s * 256u / (gv_stepn ? gv_stepn : 1u)) : 0u;
+        int32_t hop = song.playing && bt == 0u ? (int32_t)(256u - ph) * 10 / 256 : 0, mx = 120, my = 150 - hop, k;
+        G_TC(120, 36, 3, GV_STN[gv.style], GC_A);
+        for (i = 0; i < 14u; i++) {
+            int32_t h = gv_flash((int)i) ? 30 : 6, x = 4 + (int32_t)i * 17;
+            G_R(x, 176 - h, 13, h, gv_col((int)i));
+        }
+        for (k = -1; k <= 1; k++) G_R(mx + k * 9 - 3, my + 12 + (bt & 1u ? (k == 0 ? -3 : 0) : (k ? -3 : 0)), 7, 12, GC_A);   /* the 3 legs */
+        G_R(mx - 26, my - 4 - (bt == 1u ? 12 : 0), 8, 18, GC_A);                    /* the hands */
+        G_R(mx + 18, my - 4 - (bt == 3u ? 12 : 0), 8, 18, GC_A);
+        G_R(mx - 18, my - 40, 36, 54, GC_A);                                       /* the body */
+        G_R(mx - 14, my - 46, 28, 8, GC_A);
+        G_R(mx - 8, my - 32, 16, 16, GC_T); G_R(mx - 5, my - 29, 10, 10, RGB(0x7c, 0xc2, 0x42)); G_R(mx - 2, my - 26, 4, 4, GC_BG);   /* the eye */
+        G_R(mx - 9, my - 8, 18, 5 + (song.playing && bt == 0u ? 3 : 0), GC_BG);  /* the mouth */
+        G_R(mx - 22, my - 46, 4, 18, RGB(0x8a, 0x0d, 0x1e)); G_R(mx + 18, my - 46, 4, 18, RGB(0x8a, 0x0d, 0x1e));   /* headphones */
+        G_R(mx - 20, my - 50, 40, 3, GC_L);
+        break; }
     case GP_SAVE:
-        G_TC(120, 70, 2, "SAUVEGARDE", GC_A);
+        G_TC(120, 70, 2, "BANQUE", GC_A);
         G_TC(120, 100, 1, "BATTERIE : PROJETS HORTATOR (GLO 16 > SAVE)", GC_M);
         G_TC(120, 116, 1, "MELODIES : VERSION SUIVANTE", GC_M);
         break;
@@ -887,7 +1116,11 @@ static int gv_ui_leds(void)
         case GP_STY: on = j == gu.sty || j == gv.style; break;
         case GP_GRYT: case GP_GMEL: on = j < 5u; break;
         case GP_SCL: on = j == gv.root; break;
-        case GP_GLO: on = j == 15u; break;
+        case GP_GLO: on = j == 15u || j == 0u || (j >= 2u && j < 8u && gv.algo == j - 2u); break;
+        case GP_FXR: on = gv_fxr_on(j); break;
+        case GP_FXA: case GP_FXB: case GP_FXP: on = gv_perf_on(j); break;
+        case GP_MIX: case GP_LRR: on = gv_lrr_on(j); break;
+        case GP_VIS: on = j < 6u; break;
         default: break;
         }
         led_put(nl, 14u + STEP_KEY[j], on);
@@ -915,6 +1148,7 @@ static void gv_boot(void)
     }
     drum_set_model(&trk[7], DM_CONGA);
     memset(gu.byp, 0xFF, sizeof gu.byp);
+    gv.mf = 127;                                      /* FILTRE DJ open */
     gv_set_style(gv.style);
     gv_gen_rhythm();
     gv_gen_mel(0);

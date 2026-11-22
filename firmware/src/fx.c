@@ -943,6 +943,7 @@ static void mix_block(int32_t *out, uint32_t n)
                 mix_part(&trk[i], n, src);
     }
     gv_render(mix_l, mix_r, send_c, send_d, send_r, n);       /* Groove: the 6 melodic tracks (groove.c) */
+    gv_master(mix_l, mix_r, send_d, send_r, n);         /* Groove: the whole mix's FILTRE DJ, disto and sends */
     lfo_restore();                                      /* the knobs as set again */
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);  /* THROW */

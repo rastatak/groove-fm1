@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FM‑1 Groove Studio</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="fm1.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#101215">
+<link rel="icon" href="icon-192.png">
+</head>
+<body data-view="fm1">
+<div id="topbar">
+  <a class="logo" href="#fm1">FM‑1 <b>GROOVE</b></a>
+  <span id="tbmsg">Groove Studio sur un FM‑1 virtuel — appuie sur PLAY (ou Espace) pour le son</span>
+  <nav class="views"><button data-view="fm1">Vue FM‑1</button><button data-view="ed" data-sec="rythme">Rythme</button><button data-view="ed" data-sec="melodie">Mélodie</button><button data-view="ed" data-sec="sons">Bibliothèque</button><button data-view="ed" data-sec="all">Éditeur</button></nav>
+  <button class="mconn">🔌 Connecter le FM‑1</button>
+  <a class="tl" href="install.html">Installer</a>
+</div>
+<div id="vFM1">
+  <div class="mwrap">
+    <div class="mtop"><span id="mstat"></span><span class="mopts"><button id="bigS">Grand écran</button><label class="ck"><input type="checkbox" id="kbH" checked> Touches de l’ordinateur</label><button id="addS" class="hot" onclick="addOwn(false)">＋ Ajouter mes sons</button><button id="learnB" onclick="learnStart()">Apprendre les knobs du FM‑1</button></span></div>
+    <div id="dev"></div>
+    <div id="mhelp"></div>
+    <details class="mkeys"><summary>Pages et raccourcis</summary>
+      <p><b>Appuie plusieurs fois sur un bouton</b> pour changer de page : HOME = Live général → Live rythme → Live mélodie · SEQ = Rythme → Mélodie · ARP = Gen rythme → Gen mélodie · FX = Filtre → Espace → Batterie → Perf · ENV = Env → Osc · LFO = Mix → Loop/Roll · EDIT = Son → Réglages · GLO = Tempo → MIDI · SAVE = Rythmes → Mélodies → Nom.</p>
+      <p><b>Touches du haut</b> : A Z E R T Y U I O P ^ · <b>Touches du bas</b> (16) : Q S D F G H J K puis W X C V B N , ; · <b>Boutons</b> : 1 FX · 2 SCL · 3 ENV · 4 LFO · 5 EDIT · 6 GLO · 7 HOME · 8 SAVE · 9 ARP · 0 SEQ · ) REC · Espace PLAY · Échap retour au Live</p>
+      <p><b>SELECT</b> : flèches ← → · Entrée = clic · <b>PRESETS</b> (piste) : ↑ ↓ · <b>ALGORITHM</b> (pages par défaut, rôle au choix dans GLO) : Page ↑ / Page ↓ · <b>OCT</b> : = et * · <b>Knobs</b> : glisse vers le haut / le bas ou molette · <b>Sons</b> : glisse des fichiers sur le FM‑1.</p>
+    </details>
+  </div>
+</div>
+<div id="vED">
+
+<header>
+  <button id="play" title="Espace">▶</button>
+  <label>BPM<input id="bpm" type="number" min="60" max="220"></label>
+  <label>Swing<input id="swing" type="range" min="0" max="0.6" step="0.01"></label>
+  <label>Tonique<select id="root"></select></label>
+  <label>Gamme<select id="scale"></select></label>
+  <label title="Progression d’accords : un accord par mesure, basse, synthé, nappe et FX suivent ensemble dans la gamme"><span>Accords <b id="chd"></b></span><select id="prog"></select></label>
+
+  <button id="midi">🎹 MIDI</button>
+  <span id="msg">Prêt. Appuie sur ▶ ou Espace.</span>
+  <nav class="secs" id="secs"><button data-s="all">Tout</button><button data-s="live">Live</button><button data-s="rythme">Rythme seul</button><button data-s="melodie">Mélodie seule</button><button data-s="sons">Sons</button><button data-s="midi">FM‑1 USB</button><button data-s="ia">IA</button></nav>
+</header>
+<main>
+<section id="midiS" data-sec="midi">
+  <h2>FM‑1 · USB MIDI <small>branche le FM‑1 en USB (Chrome ou Edge) : ses touches et ses knobs pilotent l’app, et chaque piste peut jouer sur les sons du FM‑1</small></h2>
+  <div class="bar">
+    <button id="mc2" class="hot">🔌 Connecter le FM‑1</button>
+    <label>Sortie : sons joués sur<select id="mOut"></select></label>
+    <label>Entrée : touches et knobs de<select id="mIn"></select></label>
+    <label title="Ce que font les touches du FM-1 branché">Clavier du FM‑1<select id="mKb"><option value="auto">Auto : vue FM‑1 = commandes · éditeur = jouer</option><option value="play">Joue toujours la piste sélectionnée</option><option value="ctl">Pilote toujours la vue FM‑1</option></select></label>
+    <label title="Qui mène le tempo">Horloge<select id="mClkM"><option value="int">Interne : l’app mène</option><option value="ext">Externe : l’app suit</option><option value="auto">Auto</option></select></label>
+    <label class="ck" title="Envoyer l’horloge de l’app au FM-1 (en interne) : son séquenceur et son arpège suivent le tempo"><input type="checkbox" id="mClk"> Envoyer l’horloge</label>
+    <button id="mTest">♪ Tester le son</button><button id="mPanic">Stop notes</button><button id="mLearn">Apprendre les knobs</button>
+    <span id="mSt"></span>
+  </div>
+  <div id="mRoute" class="bar"></div>
+</section>
+<section data-sec="live">
+  <h2>LIVE <small>clic sur un pad = couper / relancer · jauge sous le pad = volume de la piste · S = solo (plusieurs possibles) · touches 1 à 8 = batterie, Maj + 1 à 8 = solo</small></h2>
+  <div class="lvw"><div class="lvL">
+  <div class="lvh"><b>RYTHME</b><button id="gmr" data-gm="r" title="Coupe toute la batterie d’un coup, sans toucher aux coupures de chaque pad"></button><select id="lstyle" title="Style du rythme tiré au hasard (même réglage que le menu « Style » de la section RYTHME)"></select><button id="lrnd" class="hot" title="Nouveau rythme complet dans le style choisi (remplace toute la batterie, à la mesure suivante pendant la lecture)">🎲</button></div>
+  <div id="pads"></div>
+  <div class="lvh"><b>MÉLODIE</b><button id="gmt" data-gm="t" title="Coupe toutes les pistes mélodiques d’un coup, sans toucher aux coupures de chaque pad"></button><button id="soOff">✕ Enlever les solos</button></div>
+  <div id="padsT"></div>
+  </div>
+  <aside id="lpan">
+    <b class="lpt">FILTRES &amp; EFFETS</b>
+    <label title="Filtre passe-bas général : vers la gauche, le son s’étouffe">Coupe-haut<input id="mf" data-am="mf" type="range" min="0" max="1" step="0.01"></label>
+    <label title="Filtre passe-haut général : vers la droite, les basses disparaissent">Coupe-bas<input id="hp" data-am="hp" type="range" min="0" max="1" step="0.01"></label>
+    <label title="Résonance des deux filtres généraux">Résonance<input id="mq" data-am="mq" type="range" min="0" max="1" step="0.01"></label>
+    <label title="Écho général sur tout le morceau, calé sur le tempo">Écho<input id="xd" data-am="xd" type="range" min="0" max="1" step="0.01"></label>
+    <label title="Reverb générale sur tout le morceau">Reverb<input id="xr" data-am="xr" type="range" min="0" max="1" step="0.01"></label>
+    <label title="Distorsion générale sur tout le morceau">Disto<input id="xs" data-am="xs" type="range" min="0" max="1" step="0.01"></label>
+    <div class="amb">
+      <button id="amRec" title="Enregistre tes mouvements sur ce panneau et sur Loop / Roll / Reverse : ils rejouent ensuite en boucle">⏺ REC</button>
+      <button id="amOn" title="Rejoue ou met en pause les mouvements enregistrés">▶ Rejoue</button>
+      <button id="amClr" title="Efface tous les mouvements enregistrés">Effacer</button>
+    </div>
+    <label title="Longueur de la boucle des mouvements enregistrés">Boucle<select id="amN"><option value="1">1 mesure</option><option value="2">2 mesures</option><option value="4">4 mesures</option><option value="8">8 mesures</option></select></label>
+    <button id="fl0" title="Remet les filtres et les effets généraux à zéro">Tout à zéro</button>
+    <small id="amP"></small>
+  </aside>
+  </div>
+  <div class="bar" id="lfx">
+    <div class="lbl" title="Groupe visé par Loop, Roll et Reverse ci‑contre">Effets sur<span class="seg"><button data-lt="">Tout</button><button data-lt="r">Rythme</button><button data-lt="t">Mélodie</button></span></div>
+    <div class="lbl" title="Maintiens : boucle sur N pas · relâche : retour à la normale">Loop · maintenir<span class="seg"><button data-hl="lp" data-v="1">1</button><button data-hl="lp" data-v="2">2</button><button data-hl="lp" data-v="4">4</button><button data-hl="lp" data-v="8">8</button></span></div>
+    <div class="lbl" title="Maintiens : chaque note est répétée dans le pas">Roll · maintenir<span class="seg"><button data-hl="rl" data-v="2">×2</button><button data-hl="rl" data-v="3">×3</button><button data-hl="rl" data-v="4">×4</button></span></div>
+    <div class="lbl" title="Maintiens : lecture à l’envers · relâche : retour à la normale">Reverse · maintenir<span class="seg"><button data-hl="rv" data-v="1">◀◀</button></span></div>
+    <div class="lbl" title="Verrou allumé : un clic garde l’effet, un second clic le coupe">Mode<button id="lat">🔒 Verrou</button></div>
+
+  </div>
+</section>
+<section data-sec="rythme">
+  <h2>RYTHME <small>clic = pas · clic droit = accent · le changement de matrice tombe sur la mesure, la mélodie continue</small></h2>
+  <div class="bar">
+    <label>Style<select id="style"></select></label>
+    <button id="rnd" class="hot">🎲 Rythme random</button>
+    <button id="vary">Varier</button>
+    <button id="keep">💾 Garder</button>
+    <button id="dup">Dupliquer</button>
+    <button id="clr">Vider</button>
+    <button id="del">Suppr.</button>
+    <label>Nom<input id="rname" type="text" maxlength="24"></label>
+    <label>Auto‑random<select id="auto"><option value="0">Off</option><option value="4">4 mesures</option><option value="8">8 mesures</option><option value="16">16 mesures</option><option value="32">32 mesures</option><option value="64">64 mesures</option><option value="128">128 mesures</option></select></label>
+  </div>
+  <div id="bank"></div>
+  <div class="scroll"><div id="drums" class="grid"></div></div>
+  <div id="dfx" class="bar"></div>
+  <div class="bar">
+    <button id="imp">＋ WAV (ordinateur)</button>
+    <button id="impD">＋ WAV (bureau Deskosia)</button>
+    <label>Volume batterie<input type="range" min="0" max="1" step="0.01" data-dp="vol"></label>
+    <label>Disto<input type="range" min="0" max="1" step="0.01" data-dp="dist"></label>
+    <label>Delay<input type="range" min="0" max="1" step="0.01" data-dp="dly"></label>
+    <label>Reverb<input type="range" min="0" max="1" step="0.01" data-dp="rev"></label>
+  </div>
+</section>
+<section data-sec="melodie">
+  <h2>MÉLODIE <small>choisis une piste, génère dans la gamme, puis retouche à la main · tire une note vers la droite pour l’allonger, vers la gauche pour la raccourcir (par ¼ de pas) · outil « Déplacer » (ou touche Maj) pour la décaler en contre‑temps</small></h2>
+  <div class="lvh"><b>LIVE</b><button data-gm="t" title="Coupe toutes les pistes mélodiques d’un coup, sans toucher aux coupures de chaque pad"></button><button id="soOff2" title="Retire tous les solos (rythme et mélodie)">✕ Enlever les solos</button></div>
+  <div id="padsM"></div>
+  <div id="tabs"></div>
+  <div class="bar" id="snd">
+    <label>Son de la piste<select id="tsmp"></select></label>
+    <label title="Note à laquelle ton son a été enregistré : sert à le jouer juste dans la gamme">Note du son<select id="tsn"></select></label>
+    <label title="Point de départ dans le fichier : utile si ton son est une boucle, pour ne jouer qu’une seule note">Début du son<input id="tss" type="range" min="0" max="0.95" step="0.01"></label>
+    <button id="timp">＋ Mon son (ordinateur)</button>
+    <button id="timpD">＋ Mon son (bureau Deskosia)</button>
+  </div>
+  <div class="bar">
+    <button id="mrnd" class="hot">🎲 Générer dans la gamme</button>
+    <button id="mvary" title="Quelques retouches dans la gamme, comme « Varier » pour le rythme">Varier</button>
+    <button id="mall" title="Régénère toutes les pistes non coupées, sur les mêmes accords (remplace leurs motifs)">🎼 Tout générer</button>
+    <button id="mclr">Vider</button>
+    <label title="Régénère la mélodie de cette piste toutes les N mesures pendant la lecture">Auto‑random<select id="mauto"><option value="0">Off</option><option value="4">4 mesures</option><option value="8">8 mesures</option><option value="16">16 mesures</option><option value="32">32 mesures</option><option value="64">64 mesures</option><option value="128">128 mesures</option></select></label>
+    <button id="rec">⏺ REC clavier</button>
+    <label>Nom de la mélodie<input id="mname" type="text" maxlength="24" placeholder="facultatif"></label>
+    <button id="msave">💾 Enregistrer la mélodie</button>
+    <div class="lbl" title="Durée : tirer le bout de la note · Déplacer : glisser la note par ¼ de pas (ou garder Maj enfoncée)">Outil souris<span class="seg" id="tool"><button data-tl="0" class="on">↔ Durée</button><button data-tl="1">✥ Déplacer</button></span></div>
+  </div>
+  <div id="mbank"></div>
+  <div class="scroll"><div id="roll" class="grid"></div></div>
+  <div id="fx" class="bar"></div>
+  <div id="keys"></div>
+</section>
+<section id="libS" data-sec="sons">
+  <h2>BIBLIOTHÈQUE DE SONS <small>tes samples rangés par dossier · glisse des fichiers ou un dossier entier ici · ils apparaissent dans les menus de chaque ligne et de chaque piste, et dans la page SON (EDIT) du FM‑1</small></h2>
+  <div class="libw">
+    <nav id="libF"></nav>
+    <div>
+      <div class="bar"><button id="libAdd" class="hot">＋ Ajouter des samples</button><button id="libDir">＋ Importer un dossier</button><button id="libNew">＋ Nouveau dossier</button><input id="libQ" type="search" placeholder="Rechercher un son"></div>
+      <div id="libL"></div>
+    </div>
+  </div>
+</section>
+<section data-sec="ia">
+  <h2>IA <small>décris un rythme ou une mélodie pour la piste sélectionnée</small></h2>
+  <div class="bar"><input id="aiQ" type="text" placeholder="ex. rythme tekno plus cassé avec roulement de snare · basse acid hypnotique qui monte"><button id="aiGo" class="hot">✨ Appliquer</button></div>
+</section>
+</main>
+</div>
+<input type="file" id="file" accept="audio/*" multiple hidden>
+<input type="file" id="libIn" accept="audio/*" multiple hidden>
+<input type="file" id="dirIn" webkitdirectory multiple hidden>
+<div id="learn" hidden><div class="lnbox">
+  <b>Apprendre les knobs du FM‑1</b> <small id="lnStep"></small>
+  <p id="lnTxt"></p><p id="lnGot"></p>
+  <div class="lnm"><small>Messages reçus du FM‑1</small><pre id="lnMon">—</pre></div>
+  <div class="bar"><button id="lnNext" class="hot">Suivant</button><button id="lnSkip">Passer</button><button id="lnStop">Fermer</button><button id="lnReset">Tout effacer</button></div>
+  <small>Branche le FM‑1 en USB et touche chaque commande sur la machine. Avec le firmware d’origine (et Felucca), seules les <b>touches</b> sont envoyées en USB : elles pilotent toute la vue FM‑1 (pas, pads, notes). Les knobs ne transmettent rien : passe-les, ils marcheront avec le firmware Groove.</small>
+</div></div>
+<script src="data.js"></script>
+<script src="audio.js"></script>
+<script src="icons.js"></script>
+<script src="midi.js"></script>
+<script src="lib.js"></script>
+<script src="app.js"></script>
+<script src="scenes.js"></script>
+<script src="fm1.js"></script>
+<script>if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});</script>
+</body>
+</html>

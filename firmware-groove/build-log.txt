@@ -1,0 +1,18 @@
+font MD_F3: h 5, 32..126, 69 glyphs, 570 B
+font MD_BIG: h 8, 48..57, 10 glyphs, 90 B
+font MD_ICON: h 5, 97..117, 5 glyphs, 126 B
+tables: /home/runner/work/groove-fm1/groove-fm1/build/gen/felucca_tables.h
+loader: image 7736 B at 0x1c0a800, bss end 0x1c0f208
+loader: ota.bin 6493 B
+generated waves into /home/runner/work/groove-fm1/groove-fm1/build/genwav
+samples: 1 sets, 24 zones, 74424 B ADPCM (cached)
+seek: 16 samples x 127 START states
+  ok    .ram_text: 909 insns, no calls
+  ok    image 439984 B; RAM .data+.bss 89980 B of 98304; pool 323340 B of 344064
+  ok    web editor: .data+.bss 408 B, pool 400 B
+  ok    register access: hal/ only (src/, src/ble/, loader/ clean)
+app      /home/runner/work/groove-fm1/groove-fm1/build/felucca.bin  439984 B
+loader   /home/runner/work/groove-fm1/groove-fm1/build/loader/ota.bin  6493 B
+package  /home/runner/work/groove-fm1/groove-fm1/build/felucca-UNTESTED.fwsc  609649 B, identity FM-1_900
+manual: /home/runner/work/groove-fm1/groove-fm1/build/site/manual/index.html: 19 sections, 1053 entries, ~23859 words, 411997 B
+site: /home/runner/work/groove-fm1/groove-fm1/build/site: index.html (landing page + simulator, 37 files), webapp/installer (27325 B), webapp/editor, firmware/felucca-drum-1.0.1-34690e5.fwsc (609649 B, FM-1_900)

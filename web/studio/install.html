@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Installer · FM‑1 Groove Studio</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="fm1.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#101215">
+<link rel="icon" href="icon-192.png">
+<style>
+.iw{max-width:860px;margin:20px auto 40px;padding:0 14px;display:grid;gap:14px}
+.st{display:grid;grid-template-columns:46px 1fr;gap:14px;align-items:start}
+.st>i{font-style:normal;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#1a1206;background:radial-gradient(circle at 35% 28%,#ffe9a6,var(--y));border:2px solid var(--d);box-shadow:0 3px 0 var(--d)}
+.st.ok>i{background:var(--c)}
+.st h3{margin:2px 0 6px;font-size:15px}
+.st p{margin:4px 0 10px;color:var(--m);line-height:1.5}
+.st p b{color:var(--t)}
+.out{font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--c);background:#06100e;border:1px solid #0e2520;border-radius:6px;padding:8px 10px;min-height:34px;white-space:pre-wrap}
+.warn{border-left:3px solid var(--a);padding-left:12px}
+</style>
+</head>
+<body data-view="install">
+<div id="topbar">
+  <a class="logo" href="index.html#fm1">FM‑1 <b>GROOVE</b></a>
+  <span id="tbmsg">Installer FM‑1 Groove Studio et brancher ton FM‑1</span>
+  <nav class="views"><a class="tl" href="index.html#fm1">Vue FM‑1</a><a class="tl" href="index.html#editeur">Éditeur</a></nav>
+</div>
+<div class="iw">
+<section class="st" id="s1"><i>1</i><div>
+  <h3>Installer l’app sur l’ordinateur</h3>
+  <p>FM‑1 Groove Studio s’ouvre alors dans sa propre fenêtre, comme un logiciel, et marche <b>sans connexion internet</b>. Tes projets et tes sons restent sur cet ordinateur.</p>
+  <div class="bar"><button id="inst" class="hot">⬇ Installer FM‑1 Groove Studio</button></div>
+  <div class="out" id="o1">Ouvre cette page dans Chrome ou Edge sur ordinateur.</div>
+</div></section>
+
+<section class="st" id="s2"><i>2</i><div>
+  <h3>Brancher le FM‑1 en USB</h3>
+  <p>Branche le FM‑1 avec un câble USB <b>qui transporte les données</b> (pas un câble de charge seule), allume-le, puis clique sur Connecter. Le navigateur te demande l’accès aux appareils MIDI : accepte.</p>
+  <div class="bar"><button id="cn" class="hot">🔌 Connecter le FM‑1</button><button id="ts" disabled>♪ Tester le son</button></div>
+  <div class="out" id="o2">En attente…</div>
+</div></section>
+
+<section class="st" id="s3"><i>3</i><div>
+  <h3>Vérifier les touches et les knobs</h3>
+  <p>Appuie sur des touches et tourne des knobs du FM‑1 : chaque message reçu s’affiche ici. Si rien n’arrive, vérifie le câble et choisis l’entrée du FM‑1 dans l’éditeur.</p>
+  <div class="out" id="o3">Rien reçu pour l’instant.</div>
+</div></section>
+
+<section class="st" id="s4"><i>4</i><div>
+  <h3>Caler le clavier du FM‑1</h3>
+  <p>L’assistant te fait appuyer sur la touche de gauche : ensuite les 27 touches du FM‑1 pilotent la vue FM‑1 (pas, pads, notes). <b>Avec le firmware d’origine du FM‑1, les knobs et les boutons n’envoient rien en USB</b> : passe ces étapes. Avec le firmware Groove (étape 5), plus besoin de l’ordinateur : la machine joue toute seule.</p>
+  <div class="bar"><a href="index.html#fm1-learn"><button class="hot">Lancer l’assistant</button></a></div>
+</div></section>
+
+<section class="st" id="s5"><i>5</i><div>
+  <h3>Groove directement dans le FM‑1 (firmware)</h3>
+  <p>Le firmware Groove met l’app <b>dans</b> le FM‑1 : 8 batteries + 6 pistes mélodiques, les mêmes pages (LIVE, FX LIVE, ARP, SEQ, FX…), sans ordinateur. Essaie-le d’abord dans le simulateur (le vrai firmware, dans le navigateur), puis installe-le.</p>
+  <div class="bar"><a id="fwsim" target="_blank" rel="noopener"><button class="hot">▶ Essayer dans le simulateur</button></a><a id="fwins" target="_blank" rel="noopener"><button class="hot">⬇ Installer le firmware Groove</button></a></div>
+  <p class="warn"><b>Pour installer :</b> Chrome ou Edge sur ordinateur, le FM‑1 branché en USB directement sur le PC, ferme cette app (elle occupe le MIDI du FM‑1), puis suis l’installateur. Ne débranche pas pendant l’installation.<br>
+  <b>Revenir au firmware officiel :</b> M‑UPGRADE de M‑VAVE (<a href="https://www.m-vave.com/download" target="_blank" rel="noopener">m-vave.com/download</a> → PC Software → M‑UPGRADE, et le firmware FM‑1 officiel).</p>
+  <div class="out" id="o5"></div>
+</div></section>
+</div>
+<script>
+const $=s=>document.querySelector(s),FM=p=>/fm-?1|felucca|hortator|melodee|shrub|m-?vave|choral|omni/i.test(p&&p.name||'');
+let dp=null,acc=null,out=null;
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;$('#o1').textContent='Prêt : clique sur Installer.';});
+addEventListener('appinstalled',()=>{$('#o1').textContent='✔ Installée. Tu la trouves dans tes applications et dans le menu Démarrer.';$('#s1').classList.add('ok');});
+if(matchMedia('(display-mode: standalone)').matches){$('#o1').textContent='✔ Tu utilises déjà l’app installée.';$('#s1').classList.add('ok');}
+$('#inst').onclick=async()=>{if(dp){dp.prompt();const r=await dp.userChoice;dp=null;if(r.outcome!=='accepted')$('#o1').textContent='Installation annulée.';}
+  else $('#o1').textContent='Si le bouton ne réagit pas : menu ⋮ du navigateur → « Installer FM‑1 Groove Studio » (ou l’icône ⊕ à droite de la barre d’adresse). L’app doit être ouverte depuis une adresse https.';};
+if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
+function list(){const o=[...acc.outputs.values()],i=[...acc.inputs.values()];out=o.find(FM)||o[0]||null;
+  $('#o2').textContent=(o.length||i.length?'Sorties : '+(o.map(p=>p.name+(FM(p)?'  ← FM‑1':'')).join(', ')||'aucune')+'\nEntrées : '+(i.map(p=>p.name).join(', ')||'aucune'):'Aucun appareil MIDI. Branche le FM‑1 en USB et allume-le.')
+    +(out?'\n✔ '+(FM(out)?'FM‑1 trouvé : ':'Appareil utilisé : ')+out.name:'');
+  $('#ts').disabled=!out;$('#s2').classList.toggle('ok',!!out);
+  i.forEach(p=>p.onmidimessage=ev=>{const[s,a,b]=ev.data,t=s&240;if(s>=0xF8)return;
+    const txt=t===144&&b?'Touche : note '+a+' (vélocité '+b+')':t===128||t===144?'Touche relâchée : note '+a:t===176?'Knob : CC '+a+' = '+b+' (canal '+((s&15)+1)+')':'Message '+[...ev.data].map(x=>x.toString(16)).join(' ');
+    const o=$('#o3');o.textContent=(txt+'\n'+(o.textContent==='Rien reçu pour l’instant.'?'':o.textContent)).split('\n').slice(0,6).join('\n');$('#s3').classList.add('ok');});}
+$('#cn').onclick=async()=>{if(!navigator.requestMIDIAccess)return $('#o2').textContent='Ce navigateur ne gère pas le MIDI USB : utilise Chrome ou Edge sur ordinateur.';
+  try{acc=await navigator.requestMIDIAccess();acc.onstatechange=list;list();}catch(e){$('#o2').textContent='Accès MIDI refusé. Clique sur l’icône à gauche de l’adresse, autorise « Appareils MIDI », puis réessaie.';}};
+/* le firmware : sur le site GitHub (le simulateur à la racine, l'installateur dans webapp/installer/, cette app dans studio/) */
+const SITE=location.pathname.includes('/studio/')?new URL('../',location.href).href:'https://rastatak.github.io/groove-fm1/';
+$('#fwsim').href=SITE;$('#fwins').href=SITE+'webapp/installer/';
+$('#o5').textContent='Simulateur : '+SITE+'\nInstallateur : '+SITE+'webapp/installer/';
+$('#ts').onclick=()=>{if(!out)return;const t=performance.now();[60,64,67,72].forEach((n,j)=>{out.send([0x90,n,100],t+j*170);out.send([0x80,n,0],t+j*170+150);});$('#o2').textContent+='\n♪ 4 notes envoyées sur le canal 1 : le FM‑1 doit les jouer.';};
+</script>
+</body>
+</html>

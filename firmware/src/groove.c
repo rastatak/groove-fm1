@@ -72,6 +72,9 @@ typedef struct {                   /* everything Groove keeps (gv_save: flash) *
     uint8_t rowar[8];              /* auto-random per drum row, bars */
     uint8_t rrl[8], rsk[8], rrv[8], rlp[8], rhf[8];   /* FX LIVE on the drum rows: roll, skipped steps, reverse, loop,
                                     * half tempo (seq.c asks gv_drum_step) */
+    uint8_t mf, hp, mq, xs, xd, xr;  /* the whole mix (web: FILTRE DJ): low-pass (127 open), high-pass (0 open), resonance,
+                                    * disto, echo and reverb sends */
+    uint8_t algo;                  /* ALGORITHM off the LIVE pages: 0 pages 1 BPM 2 FILTRE DJ 3 VOLUME 4 RYTHMES 5 SWING */
     gv_trk_t t[GV_NT];
 } gv_state_t;
 #define GV_MAGIC 0x47525631u       /* "GRV1" */
@@ -94,6 +97,10 @@ typedef struct {                   /* a voice, ISR only */
 
 static gv_state_t gv;
 static uint32_t gv_step_len(uint32_t pos);
+/* FX pads held (web: LOOP 1-8, ROLL x2-4, REVERSE) on a target: 0 all, 1 the rhythm, 2 the melody */
+static volatile uint8_t gv_plp, gv_prl, gv_prv, gv_ptg;
+static int gv_pon(int drum) { return gv_ptg == 0u || gv_ptg == (drum ? 1u : 2u); }
+
 static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now);   /* groove_ui.c */
 static int gv_ui_draw(void);
 static int gv_ui_leds(void);
@@ -440,7 +447,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
         gv_voice_t *v = &gvv[i];
         const gv_trk_t *t = &gv.t[i];
         int32_t lfo, cbase, q, fk = 1000, vol, dly, rev, drive, cho, gtv;
-        uint32_t rper = t->rl > 1u ? sn / t->rl : 0u, crk = 1u + t->cr / 16u, crb = t->cr / 11u;
+        uint32_t trl = gv_prl && gv_pon(0) ? gv_prl : t->rl, rper = trl > 1u ? sn / trl : 0u, crk = 1u + t->cr / 16u, crb = t->cr / 11u;
         uint32_t ty = GV_TTYPE[i];
         if (!v->on && !v->delay) continue;
         lfo = t->lfd ? gv_lfo(v, t, n) : 0;
@@ -498,6 +505,46 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
     }
 }
 
+/* the whole mix (fx.c, after every track): disto, the DJ filter (low-pass then high-pass, with resonance), then the
+ * echo and reverb sends of everything (the web app's master effects). Integer SVFs, one per side. */
+static int32_t gvm_lp[2], gvm_bp[2], gvm_hl[2], gvm_hb[2];
+static void gv_master(int32_t *ml, int32_t *mr, int32_t *sd, int32_t *sr, uint32_t n)
+{
+    uint32_t j, c;
+    int32_t fl, fh, q, xs, xd, xr;
+    if (gv.magic != GV_MAGIC) return;
+    if (gv.mf >= 127u && !gv.hp && !gv.xs && !gv.xd && !gv.xr) return;
+    fl = gv.mf >= 127u ? 0 : gv_fcoef((int32_t)gv.mf << 8);
+    fh = gv.hp ? gv_fcoef((int32_t)gv.hp << 8) : 0;
+    q = 32767 - gv.mq * 230;
+    xs = gv.xs; xd = gv.xd * 200; xr = gv.xr * 200;
+    for (c = 0; c < 2u; c++) {
+        int32_t *m = c ? mr : ml;
+        for (j = 0; j < n; j++) {
+            int32_t x = m[j] >> 6, hp;                 /* the mix runs ~2^21: down to a voice's range for the SVF */
+            if (xs) { x = x * (1 + xs / 12); x = x > 24000 ? 24000 + (x - 24000) / 6 : x < -24000 ? -24000 + (x + 24000) / 6 : x; }
+            if (fl) {
+                gvm_lp[c] += (fl * gvm_bp[c]) >> 15;
+                hp = x - gvm_lp[c] - ((q * gvm_bp[c]) >> 15);
+                gvm_bp[c] += (fl * hp) >> 15;
+                gvm_lp[c] = gv_clamp(gvm_lp[c], -65000, 65000); gvm_bp[c] = gv_clamp(gvm_bp[c], -65000, 65000);
+                x = gvm_lp[c];
+            }
+            if (fh) {
+                gvm_hl[c] += (fh * gvm_hb[c]) >> 15;
+                hp = x - gvm_hl[c] - ((q * gvm_hb[c]) >> 15);
+                gvm_hb[c] += (fh * hp) >> 15;
+                gvm_hl[c] = gv_clamp(gvm_hl[c], -65000, 65000); gvm_hb[c] = gv_clamp(gvm_hb[c], -65000, 65000);
+                x = hp;
+            }
+            x = gv_clamp(x, -65000, 65000);
+            m[j] = x << 6;
+            if (xd) sd[j] += (x * xd) >> 10;
+            if (xr) sr[j] += (x * xr) >> 10;
+        }
+    }
+}
+
 /* ------------------------------------------------------------------ sequencer (audio ISR) --- */
 static void gv_start(void) { gv_pos = 0; gv_bar = 0; gv_cix = 0; gv_acc_s = 0; gv_stepn = 0; }
 static void gv_stop(void) { uint32_t i; for (i = 0; i < GV_NT; i++) gv_note_off(i); }
@@ -533,8 +580,8 @@ static void gv_play_step(uint32_t pos)
         const gv_step_t *s;
         if (t->hf && (pos & 1u)) continue;            /* HALF: one step in two, the pattern over 2 bars */
         c = t->hf ? ((pos >> 1) + ((gv_bar & 1u) ? 0u : 8u)) & 15u : pos;
-        if (t->bw || t->rv) c = 15u - c;
-        c = gv_loop(&gv_lpa[8u + i], &gv_lpc[8u + i], t->lp, c);
+        if (t->bw || t->rv || (gv_prv && gv_pon(0))) c = 15u - c;
+        c = gv_loop(&gv_lpa[8u + i], &gv_lpc[8u + i], gv_plp && gv_pon(0) ? gv_plp : t->lp, c);
         s = &t->st[c & 15u];
         if (s->n >= 0 && t->sk && gv_rnd(127u) < t->sk) continue;
         if (gv_live_trk == 8u + i) continue;           /* a key held: the live note wins */
@@ -551,8 +598,8 @@ static int gv_drum_step(const track_t *t, uint16_t *idx, uint32_t cnt)
     for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
     if (r == 8u) return 1;
     if (gv.rhf[r]) { if (i & 1u) return 0; i = ((i >> 1) + (((cnt >> 4) & 1u) ? 8u : 0u)) & 15u; }
-    if (gv.rrv[r]) i = 15u - (i & 15u);
-    i = gv_loop(&gv_lpa[r], &gv_lpc[r], gv.rlp[r], i);
+    if (gv.rrv[r] || (gv_prv && gv_pon(1))) i = 15u - (i & 15u);
+    i = gv_loop(&gv_lpa[r], &gv_lpc[r], gv_plp && gv_pon(1) ? gv_plp : gv.rlp[r], i);
     if (gv.rsk[r] && gv_rnd(127u) < gv.rsk[r]) return 0;
     *idx = (uint16_t)i;
     return 1;
@@ -561,7 +608,8 @@ static void gv_drum_roll(track_t *t)              /* after its hit: ROLL = 2..4 
 {
     uint32_t r;
     for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
-    if (r < 8u && gv.rrl[r] > 1u && t->rat_n) { t->rat_n = gv.rrl[r]; t->rat_k = 1; }
+    uint8_t rl = r < 8u ? (gv_prl && gv_pon(1) ? gv_prl : gv.rrl[r]) : 0u;
+    if (rl > 1u && t->rat_n) { t->rat_n = rl; t->rat_k = 1; }
 }
 /* the block's advance (seq.c events_block: n samples of the drums' clock) */
 static void gv_tick(uint32_t n)

@@ -153,6 +153,39 @@ int main(void)
     check("again: back", gv.t[0].cr > 0);
     sim_btn(B_FX, 1); run(FS * 21u / 10u); sim_btn(B_FX, 0); run(FS / 20u);
     check("FX held on FX LIVE: the target's effects to zero", gv.t[0].lp == 0 && gv.t[0].hf == 0 && gv.t[0].cr == 0);
+    /* the web app's pages: FILTRE DJ, FX x5, VISU, LOOP ROLL, TAP / ALGO */
+    tap_btn(B_HOME); while (gu.page != GP_LIVE) tap_btn(B_HOME);
+    check("LIVE knob 2 = FILTRE DJ, open at power-on", gv.mf == 127 && gv.hp == 0);
+    r0 = rms_of(FS);
+    sim_enc(EN_K2, -60); run(FS / 20u);
+    check("FILTRE DJ left: the low-pass closes", gv.mf < 60 && gv.hp == 0);
+    r1 = rms_of(FS);
+    printf("info  rms open %.4f, DJ low-pass %.4f\n", r0, r1);
+    check("the DJ filter takes the highs off (quieter)", r1 < r0);
+    sim_enc(EN_K2, 120); run(FS / 20u);
+    check("FILTRE DJ right: the high-pass opens", gv.hp > 0 && gv.mf == 127);
+    sim_enc(EN_K2, -200); sim_enc(EN_K2, 64); run(FS / 20u);
+    tap_btn(B_FX); check("FX: FX RECAP first", gu.page == GP_FXR); shot("fxr");
+    tap_key(STEP_KEY[0]); check("RECAP key 1: the low-pass cut (open)", gv.mf == 127);
+    tap_btn(B_FX); check("FX again: FX FILTRE", gu.page == GP_FXA);
+    sim_key(STEP_KEY[1], 1); run(FS / 4u);
+    check("FX pad LOOP 2 held: on", gv_plp == 2);
+    shot("fxa");
+    sim_key(STEP_KEY[1], 0); run(FS / 20u);
+    check("let go: off", gv_plp == 0);
+    tap_key(STEP_KEY[11]); tap_key(STEP_KEY[4]);
+    check("VERROU, then ROLL x2: it stays", gu.lock && gv_prl == 2);
+    tap_key(STEP_KEY[4]); check("pressed again: off", gv_prl == 0);
+    tap_key(STEP_KEY[11]);
+    tap_btn(B_FX); tap_btn(B_FX); check("FX x4: FX BATT", gu.page == GP_FXD); shot("fxd");
+    tap_btn(B_FX); check("FX x5: FX PERF", gu.page == GP_FXP); shot("fxp");
+    tap_btn(B_ARP); tap_btn(B_ARP); check("ARP x2: VISU", gu.page == GP_VIS); shot("vis");
+    tap_btn(B_LFO); tap_btn(B_LFO); check("LFO x2: LOOP ROLL", gu.page == GP_LRR);
+    gv.sel = 8; tap_key(STEP_KEY[4]); check("LOOP ROLL key 5: the bass loops 4 steps", gv.t[0].lp == 4); shot("lrr");
+    tap_key(STEP_KEY[0]);
+    tap_btn(B_GLO); tap_key(STEP_KEY[3]); check("GLO key 4: ALGORITHM = BPM", gv.algo == 1u);
+    { int16_t bpm = song.g[G_BPM]; tap_btn(B_ENV); sim_enc(EN_ALGO, 3); run(FS / 20u); check("ALGORITHM turns the BPM now", song.g[G_BPM] == bpm + 3); }
+    tap_btn(B_GLO); tap_key(STEP_KEY[2]); shot("glo2");
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);
     check("GLO key 16: Hortator's own pages", gv_on == 0);
