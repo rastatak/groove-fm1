@@ -78,6 +78,7 @@ jobs:
           set -o pipefail
           python3 tools/build.py 2>&1 | tee build-log.txt
           cp -r web/studio build/site/studio            # the web app (Groove Studio), next to its firmware
+          cp build/*.fwsc build/site/studio/groove-firmware.fwsc   # the firmware itself, downloadable from the web app
           ls -la build/*.fwsc build/site
 
       - name: The firmware to download

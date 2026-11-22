@@ -83,7 +83,10 @@ python tools/fm1_install.py felucca.fwsc
 | **FX** | délais et reverb généraux → effets de la batterie · **maintenu 2 s** : remet les effets à zéro |
 | **SCL** | la gamme, la tonique, la suite d'accords |
 | **ENV** | ENV → FILTRE → LFO → OSC de la piste choisie |
-| **LFO** | MIX · **EDIT** : SON · **GLO** : TEMPO |
+| **LFO** | MIX → LOOP ROLL |
+| **EDIT** | SON → SON RÉGLAGES → ÉDITER → MIDI PISTES |
+| **GLO** | TEMPO → MIDI |
+| **SAVE** | BANQUE → RYTHMES → MÉLODIES |
 | **PRESETS** | choisit la piste (8 batteries + 6 mélodiques) |
 | **SELECT** | se déplace dans la page (le pas, le style, la cible des effets…) |
 | **KNOB 1-4** | les 4 réglages affichés en bas de l'écran |

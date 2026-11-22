@@ -222,6 +222,17 @@ int main(void)
     shot("presets");
     gv.sel = 8; { uint8_t c0 = gv.t[0].cut; sim_enc(EN_PRESET, 1); run(FS / 20u); sim_enc(EN_PRESET, 1); run(FS / 20u); check("PRESETS on the bass: a bass sound", gv.t[0].cut != c0 || gv_sndcur[0] != 0); }
     sim_enc(EN_ALGO, 1); run(FS / 20u); { uint8_t kn[4]; gv_knobs(kn); check("JEU: KNOB 4 = the keyboard's octave", kn[3] == KN_KOCT); } sim_enc(EN_ALGO, -1); run(FS / 20u);
+    tap_btn(B_ARP); while (gu.page != GP_VIS) tap_btn(B_ARP);
+    { uint8_t st = gv.style, k; sim_enc(EN_SELECT, 1); run(FS / 20u); check("VISU SELECT: another style shown, not yet taken", gu.sty != st && gv.style == st);
+      sim_btn(B_ARP, 1); run(FS * 21u / 10u); sim_btn(B_ARP, 0); run(FS / 20u); check("ARP held on VISU: taken", gv.style == gu.sty);
+      for (k = 0; k < GV_NSTY; k++) { char n[16]; gu.sty = k; snprintf(n, sizeof n, "st%u", (unsigned)k); shot(n); } gu.sty = gv.style; }
+    gv.sel = 0; tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT);
+    tap_btn(B_EDIT); check("EDIT x2: SON REGLAGES", gu.page == GP_SONR); shot("sonr");
+    tap_btn(B_EDIT); check("EDIT x3: EDITER", gu.page == GP_SEDIT); { int16_t e = trk[GV_ROWTRK[0]].p[P_E2]; sim_enc(EN_K1, 4); run(FS / 20u); check("EDITER knob 1: the voice's 3rd knob", trk[GV_ROWTRK[0]].p[P_E2] != e); } shot("sedit");
+    tap_btn(B_EDIT); check("EDIT x4: MIDI PISTES", gu.page == GP_EMIDI); shot("emidi");
+    tap_btn(B_GLO); tap_btn(B_GLO); check("GLO x2: MIDI", gu.page == GP_MIDI); shot("midi");
+    tap_btn(B_SAVE); tap_btn(B_SAVE); check("SAVE x2: RYTHMES", gu.page == GP_BKR); tap_key(STEP_KEY[2]); check("RYTHMES key 3: saved", gu.rbu & 4u); shot("bkr");
+    tap_btn(B_SAVE); check("SAVE x3: MELODIES", gu.page == GP_BKM); gv.sel = 8; tap_key(STEP_KEY[1]); check("MELODIES key 2: saved", gu.mbu & 2u); shot("bkm");
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);
     check("GLO key 16: Hortator's own pages", gv_on == 0);

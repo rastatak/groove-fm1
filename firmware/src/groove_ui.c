@@ -10,18 +10,20 @@ static void play_press(void);
 static void gv_boot(void);
 
 enum { GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, GP_RYT, GP_MEL, GP_STY, GP_VIS, GP_GRYT, GP_GMEL, GP_FXR, GP_FXA, GP_FXB, GP_FXD, GP_FXP,
-       GP_SCL, GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_MIX, GP_LRR, GP_SON, GP_GLO, GP_SAVE, GP_N };
+       GP_SCL, GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_MIX, GP_LRR, GP_SON, GP_GLO, GP_SAVE,
+       GP_SONR, GP_SEDIT, GP_EMIDI, GP_MIDI, GP_BKR, GP_BKM, GP_N };   /* (added last: the ranges above stay) */
 static const char *const GP_T[GP_N] = {"LIVE", "LIVE RYT", "LIVE MEL", "FX LIVE", "RYTHME", "MELODIE", "STYLES", "VISU", "GEN RYT",
                                        "GEN MEL", "FX RECAP", "FX FILTRE", "FX ESPACE", "FX BATT", "FX PERF", "GAMME", "ENV", "FILTRE",
-                                       "LFO", "OSC", "MIX", "LOOP ROLL", "SON", "TEMPO", "BANQUE"};
+                                       "LFO", "OSC", "MIX", "LOOP ROLL", "SON", "TEMPO", "BANQUE", "SON REGL.", "EDITER", "MIDI PISTES",
+                                       "MIDI", "RYTHMES", "MELODIES"};
 #define GV_PERFP(p) ((p) >= GP_FXA && (p) <= GP_FXP)   /* the FX pages with the pads (LOOP ROLL REVERSE held) */
 /* button -> its pages (B_* of panel.c); 0xFF = none */
 static const uint8_t GV_GRP[NB][5] = {
     [B_HOME] = {GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, 0xFF}, [B_SEQ] = {GP_RYT, GP_MEL, 0xFF, 0xFF, 0xFF},
     [B_ARP] = {GP_STY, GP_VIS, GP_GRYT, GP_GMEL, 0xFF},  [B_FX] = {GP_FXR, GP_FXA, GP_FXB, GP_FXD, GP_FXP},
     [B_SCL] = {GP_SCL, 0xFF, 0xFF, 0xFF, 0xFF},          [B_ENV] = {GP_ENV, GP_FLT, GP_LFO, GP_OSC, 0xFF},
-    [B_LFO] = {GP_MIX, GP_LRR, 0xFF, 0xFF, 0xFF},        [B_EDIT] = {GP_SON, 0xFF, 0xFF, 0xFF, 0xFF},
-    [B_GLO] = {GP_GLO, 0xFF, 0xFF, 0xFF, 0xFF},          [B_SAVE] = {GP_SAVE, 0xFF, 0xFF, 0xFF, 0xFF},
+    [B_LFO] = {GP_MIX, GP_LRR, 0xFF, 0xFF, 0xFF},        [B_EDIT] = {GP_SON, GP_SONR, GP_SEDIT, GP_EMIDI, 0xFF},
+    [B_GLO] = {GP_GLO, GP_MIDI, 0xFF, 0xFF, 0xFF},       [B_SAVE] = {GP_SAVE, GP_BKR, GP_BKM, 0xFF, 0xFF},
     [B_PLAY] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, [B_REC] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
     [B_OCTDN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, [B_OCTUP] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
 
@@ -84,13 +86,14 @@ enum { KN_NONE, KN_TVOL, KN_RVOL, KN_SWING, KN_TAR, KN_RAR, KN_STYLE, KN_GMR, KN
        KN_DIST, KN_DLY, KN_REV, KN_DMIX, KN_DTIME, KN_RSIZE, KN_RDAMP, KN_SNOTE, KN_SLEN, KN_SACC, KN_SOFF, KN_ROW,
        KN_MODEL, KN_RTUNE, KN_RDEC, KN_RDIST, KN_RREV, KN_FX0, KN_FX1, KN_FX2, KN_FX3,
        KN_DJ, KN_MF, KN_HP, KN_MQ, KN_XS, KN_XD, KN_XR, KN_PTG, KN_LOCK, KN_RLP, KN_RRL, KN_TLP, KN_TRL, KN_TBW,
-       KN_DVOL, KN_DDIST, KN_DDLY, KN_DREV, KN_BMODE, KN_KOCT, KN_N };
+       KN_DVOL, KN_DDIST, KN_DDLY, KN_DREV, KN_BMODE, KN_KOCT,
+       KN_E2, KN_E3, KN_E4, KN_E5, KN_GCH, KN_GCLK, KN_GSYNC, KN_N };
 static const char *const KN_L[KN_N] = {"", "VOLUME", "VOLUME", "SWING", "AUTO", "AUTO", "STYLE", "RYTHME", "PITCH", "BPM",
     "AUTO RYT", "ACCORDS", "TONIQUE", "GAMME", "CUTOFF", "RESO", "TYPE", "ENV", "ATTAQUE", "DECAY", "GLIDE", "VITESSE",
     "PROFOND.", "FORME", "CALAGE", "ONDE", "OCTAVE", "DISTO", "DELAY", "REVERB", "DLY MIX", "DLY TEMPS", "REV TAILLE",
     "REV DAMP", "NOTE", "DUREE", "ACC SLIDE", "DECALAGE", "LIGNE", "MODELE", "ACCORD", "DECAY", "DISTO", "REVERB", "", "", "", "",
     "FILTRE DJ", "COUPE-HAUT", "COUPE-BAS", "RESO", "DISTO", "ECHO", "REVERB", "CIBLE", "VERROU", "LOOP", "ROLL", "LOOP", "ROLL",
-    "SENS", "VOLUME", "DISTO", "DELAY", "REVERB", "MODE", "OCT CLAV"};
+    "SENS", "VOLUME", "DISTO", "DELAY", "REVERB", "MODE", "OCT CLAV", "", "", "", "", "CANAL BATT", "HORLOGE", "ENVOI HORL"};
 static gv_step_t *gv_stp(void) { return &gv_tr()->st[gu.cur & 15u]; }
 static track_t *gv_rt(void) { return &trk[GV_ROWTRK[gv.sel & 7]]; }
 /* ------------------------------------------------------------- FX LIVE: 16 effects on 4 pages, on a target --- */
@@ -210,6 +213,10 @@ static void gv_krange(uint32_t id, int32_t *mn, int32_t *mx)
     case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0, c = gv_fxn(e); *mx = c ? (int32_t)c - 1 : 127; break; }
     case KN_PTG: case KN_BMODE: *mx = 2; break;
     case KN_KOCT: *mx = 3; break;
+    case KN_E2: case KN_E3: case KN_E4: case KN_E5: { const param_desc_t *dd = track_desc(gv_rt(), P_E2 + id - KN_E2); *mn = dd->min; *mx = dd->max; break; }
+    case KN_GCH: *mn = GP[G_DRCH].min; *mx = GP[G_DRCH].max; break;
+    case KN_GCLK: *mx = GP[G_CLOCK].max; break;
+    case KN_GSYNC: *mx = GP[G_SYNC].max; break;
     case KN_LOCK: case KN_TBW: *mx = 1; break;
     case KN_RLP: case KN_TLP: *mx = 6; break;
     case KN_RRL: case KN_TRL: *mx = 3; break;
@@ -240,6 +247,8 @@ static int32_t gv_kget(uint32_t id)
     case KN_DJ: return gv.hp ? 64 + gv.hp / 2 : gv.mf >= 127u ? 64 : gv.mf / 2;
     case KN_MF: return gv.mf; case KN_HP: return gv.hp; case KN_MQ: return gv.mq; case KN_XS: return gv.xs;
     case KN_XD: return gv.xd; case KN_XR: return gv.xr; case KN_PTG: return gv_ptg; case KN_LOCK: return gu.lock; case KN_BMODE: return gu.bmode; case KN_KOCT: return gv.oct;
+    case KN_E2: case KN_E3: case KN_E4: case KN_E5: return r->p[P_E2 + id - KN_E2];
+    case KN_GCH: return song.g[G_DRCH]; case KN_GCLK: return song.g[G_CLOCK]; case KN_GSYNC: return song.g[G_SYNC];
     case KN_RLP: return gv_lpix(gv.rlp[gv.sel & 7]); case KN_RRL: return gv_rlix(gv.rrl[gv.sel & 7]);
     case KN_TLP: return gv_lpix(t->lp); case KN_TRL: return gv_rlix(t->rl); case KN_TBW: return t->bw;
     case KN_DVOL: case KN_DDIST: case KN_DDLY: case KN_DREV: {
@@ -290,6 +299,8 @@ static void gv_kset(uint32_t id, int32_t v)
     case KN_MF: gv.mf = (uint8_t)v; break; case KN_HP: gv.hp = (uint8_t)v; break; case KN_MQ: gv.mq = (uint8_t)v; break;
     case KN_XS: gv.xs = (uint8_t)v; break; case KN_XD: gv.xd = (uint8_t)v; break; case KN_XR: gv.xr = (uint8_t)v; break;
     case KN_PTG: gv_ptg = (uint8_t)v; break; case KN_LOCK: gu.lock = (uint8_t)v; break; case KN_BMODE: gu.bmode = (uint8_t)v; break; case KN_KOCT: gv.oct = (uint8_t)v; break;
+    case KN_E2: case KN_E3: case KN_E4: case KN_E5: r->p[P_E2 + id - KN_E2] = (int16_t)v; break;
+    case KN_GCH: song.g[G_DRCH] = (int16_t)v; break; case KN_GCLK: song.g[G_CLOCK] = (int16_t)v; break; case KN_GSYNC: song.g[G_SYNC] = (int16_t)v; break;
     case KN_RLP: gv.rlp[gv.sel & 7] = GV_LPV[v % 7]; break; case KN_RRL: gv.rrl[gv.sel & 7] = GV_RLV[v & 3]; break;
     case KN_TLP: t->lp = GV_LPV[v % 7]; break; case KN_TRL: t->rl = GV_RLV[v & 3]; break; case KN_TBW: t->bw = (uint8_t)v; break;
     case KN_DVOL: case KN_DDIST: case KN_DDLY: case KN_DREV: {
@@ -324,6 +335,10 @@ static void gv_kfmt(uint32_t id, int32_t v, char *b)
     case KN_MODEL: gv_fmt(b, "%s", DMODELS[(uint32_t)v % NMODELS].name); return;
     case KN_BPM: case KN_OCT: gv_fmt(b, "%d", (int)v); return;
     case KN_SWING: gv_fmt(b, "%d%%", (int)v); return;
+    case KN_E2: case KN_E3: case KN_E4: case KN_E5: case KN_GCLK: case KN_GSYNC: case KN_GCH: {
+        const param_desc_t *dd = id == KN_GCLK ? &GP[G_CLOCK] : id == KN_GSYNC ? &GP[G_SYNC] : id == KN_GCH ? &GP[G_DRCH] : track_desc(gv_rt(), P_E2 + id - KN_E2);
+        if (dd->fmt == F_ENUM && dd->names && v >= 0 && v <= dd->max) gv_fmt(b, "%s", dd->names[v]); else gv_fmt(b, "%d", (int)v);
+        return; }
     case KN_DJ: if (v == 64) { gv_fmt(b, "OUVERT"); } else if (v < 64) { gv_fmt(b, "GRAVE %d", (int)(64 - v)); } else gv_fmt(b, "AIGU %d", (int)(v - 64)); return;
     case KN_MF: if (v >= 127) { gv_fmt(b, "OUVERT"); } else gv_fmt(b, "%d%%", (int)(v * 100 / 127)); return;
     case KN_HP: if (!v) { gv_fmt(b, "OUVERT"); } else gv_fmt(b, "%d%%", (int)(v * 100 / 127)); return;
@@ -373,7 +388,10 @@ static void gv_knobs(uint8_t *k)
     case GP_LRR: if (d) K4(KN_RLP, KN_RRL, KN_ROW, KN_RAR); else K4(KN_TLP, KN_TRL, KN_TBW, KN_TAR); break;
     case GP_SON: if (d) K4(KN_MODEL, KN_RTUNE, KN_RDEC, KN_RVOL); else K4(KN_WAVE, KN_OCT, KN_CUT, KN_DEC); break;
     case GP_GLO: K4(KN_BPM, KN_SWING, KN_STYLE, KN_AUTO); break;
-    case GP_SAVE: K4(KN_BMODE, KN_STYLE, KN_AUTO, KN_NONE); break;
+    case GP_SAVE: case GP_BKR: case GP_BKM: K4(KN_BMODE, KN_STYLE, KN_AUTO, KN_NONE); break;
+    case GP_SONR: if (d) K4(KN_MODEL, KN_RTUNE, KN_RDEC, KN_RVOL); else K4(KN_WAVE, KN_OCT, KN_CUT, KN_DEC); break;
+    case GP_SEDIT: if (d) K4(KN_E2, KN_E3, KN_E4, KN_E5); else K4(KN_RES, KN_ENV, KN_DIST, KN_LFD); break;
+    case GP_EMIDI: case GP_MIDI: K4(KN_GCH, KN_GCLK, KN_GSYNC, KN_NONE); break;
     default: break;
     }
     if (!d && gu.page == GP_RYT) gv.sel = 0;
@@ -596,9 +614,10 @@ static void gv_white(uint32_t j, int down)
         if (j < 3u) t->wave = (uint8_t)j; else if (j >= 4u && j < 10u) t->oct = (uint8_t)(j - 3u); else if (j >= 13u) t->ftype = (uint8_t)(j - 13u);
         break;
     case GP_MIX: case GP_LRR: gv_lrr_key(j); break;
-    case GP_SAVE: {                                   /* keys 1-8 the rhythms, 9-16 the melodies (of the shown track) */
-        uint32_t k = j & 7u, mel = j >= 8u, used = ((mel ? gu.mbu : gu.rbu) >> k) & 1u, r;
+    case GP_SAVE: case GP_BKR: case GP_BKM: {         /* keys 1-8 the rhythms, 9-16 the melodies (of the shown track) */
+        uint32_t k = j & 7u, mel = gu.page == GP_BKM || (gu.page == GP_SAVE && j >= 8u), used = ((mel ? gu.mbu : gu.rbu) >> k) & 1u, r;
         char m[28];
+        if (gu.page != GP_SAVE && j >= 8u) break;
         if (gu.bmode == 2u) { if (mel) gu.mbu &= (uint8_t)~(1u << k); else gu.rbu &= (uint8_t)~(1u << k); gv_say("EMPLACEMENT EFFACE"); }
         else if (gu.bmode == 1u || !used) {           /* save (an empty slot saves even in CHARGER) */
             if (mel) { memcpy(gu.mb[k], gv_isd() ? gv.t[0].st : t->st, sizeof gu.mb[k]); gu.mbu |= (uint8_t)(1u << k); gu.mcur = (uint8_t)k; }
@@ -634,6 +653,7 @@ static void gv_select(int32_t s)
     case GP_RYT: case GP_MEL: gu.cur = (uint8_t)((gu.cur + (uint32_t)s) & 15u); break;
     case GP_LFX: gu.fxt = (uint8_t)((gu.fxt + 8 + s % 8) % 8); gv_say(FXT_N[gu.fxt]); break;
     case GP_STY: gu.sty = (uint8_t)((gu.sty + GV_NSTY * 4 + s) % GV_NSTY); break;
+    case GP_VIS: gu.sty = (uint8_t)((gu.sty + GV_NSTY * 4 + s) % GV_NSTY); gv_say(gu.sty == gv.style ? GV_STN[gu.sty] : "ARP MAINTENU = VALIDER"); break;
     case GP_SCL: gv_set_scale((uint32_t)((gv.scale + GV_NSC * 4 + s) % GV_NSC)); break;
     case GP_GLO: song.g[G_BPM] = (int16_t)gv_clamp(song.g[G_BPM] + s, 40, 240); break;
     case GP_LMEL: case GP_GMEL: case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC:
@@ -654,7 +674,7 @@ static void gv_go(uint32_t b)
     } else {
         gu.btn = (uint8_t)b; gu.page = GV_GRP[b][0];
     }
-    if (gu.page == GP_STY) gu.sty = gv.style;
+    if (gu.page == GP_STY || gu.page == GP_VIS) gu.sty = gv.style;
     gu.dirty = 1;
 }
 static void gv_long(uint32_t b)
@@ -663,7 +683,7 @@ static void gv_long(uint32_t b)
         if (gv_isd()) gv_gen_row((uint32_t)gv.sel); else gv_gen_mel((uint32_t)gv.sel - 8u);
         gv_say(gv_isd() ? "NOUVEAU MOTIF" : "NOUVELLE MELODIE");
     } else if (b == B_ARP) {
-        gv_set_style(gu.page == GP_STY ? gu.sty : gv.style);
+        gv_set_style(gu.page == GP_STY || gu.page == GP_VIS ? gu.sty : gv.style);
         gv_gen_all();
         gv_say("STYLE + TOUT REGENERE");
     } else if (b == B_FX && gu.page == GP_LFX) {
@@ -764,7 +784,7 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
             uint32_t k, n = GP_N;
             gu.page = (uint8_t)((gu.page + n + (uint32_t)(s > 0 ? 1 : n - 1)) % n);
             for (b = 0; b < NB; b++) for (k = 0; k < 5u; k++) if (GV_GRP[b][k] == gu.page) gu.btn = (uint8_t)b;
-            if (gu.page == GP_STY) gu.sty = gv.style;
+            if (gu.page == GP_STY || gu.page == GP_VIS) gu.sty = gv.style;
         } else {
             static const uint8_t AK[6] = {KN_NONE, KN_BPM, KN_DJ, KN_TVOL, KN_NONE, KN_SWING};
             char m[32], v[20];
@@ -843,7 +863,7 @@ static void gv_draw_foot(void)
         gv_krange(kn[i], &mn, &mx);
         v = gv_kget(kn[i]);
         cv_knob(cx, 200 - gv_oy, 9, mx > mn ? (v - mn) * 1000 / (mx - mn) : 0, -1, i & 1u ? GC_C : GC_A);
-        G_TC(cx, 216, 1, kn[i] >= KN_FX0 && kn[i] <= KN_FX3 ? (gu.fxt == 0u && FE_LD[gu.fxpg * 4u + i] ? FE_LD[gu.fxpg * 4u + i] : FE_L[gu.fxpg * 4u + i]) : KN_L[kn[i]], GC_M);
+        G_TC(cx, 216, 1, kn[i] >= KN_FX0 && kn[i] <= KN_FX3 ? (gu.fxt == 0u && FE_LD[gu.fxpg * 4u + i] ? FE_LD[gu.fxpg * 4u + i] : FE_L[gu.fxpg * 4u + i]) : kn[i] >= KN_E2 && kn[i] <= KN_E5 ? track_desc(gv_rt(), P_E2 + kn[i] - KN_E2)->label : KN_L[kn[i]], GC_M);
         gv_kfmt(kn[i], v, b);
         G_TC(cx, G_TW(2, b) > 58 ? 228 : 226, G_TW(2, b) > 58 ? 1u : 2u, b, GC_T);
     }
@@ -994,6 +1014,23 @@ static void gv_scene(uint32_t sc, int32_t y0, int32_t h)
         break;
     }
 }
+static int32_t gs_x, gs_y, gs_w, gs_h;               /* the stage's rectangle: its lines stay inside */
+static void G_LS(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)   /* a line clipped to it (Liang-Barsky) */
+{
+    int32_t dx = x1 - x0, dy = y1 - y0, t0 = 0, t1 = 1024, k;
+    int32_t pp[4], qq[4];
+    pp[0] = -dx; pp[1] = dx; pp[2] = -dy; pp[3] = dy;
+    qq[0] = x0 - gs_x; qq[1] = gs_x + gs_w - 1 - x0; qq[2] = y0 - gs_y; qq[3] = gs_y + gs_h - 1 - y0;
+    for (k = 0; k < 4; k++) {
+        if (!pp[k]) { if (qq[k] < 0) return; }
+        else {
+            int32_t t = qq[k] * 1024 / pp[k];
+            if (pp[k] < 0) { if (t > t1) return; if (t > t0) t0 = t; }
+            else { if (t < t0) return; if (t < t1) t1 = t; }
+        }
+    }
+    G_L(x0 + dx * t0 / 1024, y0 + dy * t0 / 1024, x0 + dx * t1 / 1024, y0 + dy * t1 / 1024, c);
+}
 static void gv_stage(uint32_t st, int32_t x0, int32_t y0, int32_t w, int32_t h, int32_t u)   /* a style's scene + the monster */
 {
     static const uint32_t TOP[GV_NSTY] = {0x0b0b14, 0x140808, 0x10103a, 0x090014, 0x14100a, 0x101214, 0x0a1a10, 0x141014, 0x0c0c18, 0x101010, 0x1a0808,
@@ -1007,21 +1044,22 @@ static void gv_stage(uint32_t st, int32_t x0, int32_t y0, int32_t w, int32_t h, 
     uint16_t top = (uint16_t)P565(TOP[s] >> 16, (TOP[s] >> 8) & 255u, TOP[s] & 255u), bot = (uint16_t)P565(BOT[s] >> 16, (BOT[s] >> 8) & 255u, BOT[s] & 255u),
              acc = RGB(ACC[s] >> 16, (ACC[s] >> 8) & 255u, ACC[s] & 255u);
     int32_t cx = x0 + w / 2, fl = y0 + h - 6;
+    gs_x = x0; gs_y = y0; gs_w = w; gs_h = h;
     for (k = 0; k < 8u; k++) G_R(x0, y0 + h * (int32_t)k / 8, w, h / 8 + 1, gv_sw(gv_mix565(top, bot, (int32_t)k * 16 / 7)));
     switch (KIND[s]) {
     case 0:   /* lasers from the stage */
-        for (k = 0; k < 7u; k++) { int32_t a = gv_sin((ms / 10u + k * 37u) & 255u) * w / 2 / 127; G_L(cx, fl - 10, cx + a + ((int32_t)k - 3) * w / 9, y0, acc); }
+        for (k = 0; k < 7u; k++) { int32_t a = gv_sin((ms / 10u + k * 37u) & 255u) * w / 2 / 127; G_LS(cx, fl - 10, cx + a + ((int32_t)k - 3) * w / 9, y0, acc); }
         break;
     case 1:   /* rays turning round the light */
-        for (k = 0; k < 12u; k++) { uint32_t a = (k * 21u + ms / 40u) & 255u; G_L(cx, y0 + h * 6 / 10, cx + gv_sin(a) * w / 127, y0 + h * 6 / 10 + gv_sin((a + 64u) & 255u) * w / 127, gv_mix565(acc, top, 8)); }
+        for (k = 0; k < 12u; k++) { uint32_t a = (k * 21u + ms / 40u) & 255u; G_LS(cx, y0 + h * 6 / 10, cx + gv_sin(a) * w / 127, y0 + h * 6 / 10 + gv_sin((a + 64u) & 255u) * w / 127, gv_mix565(acc, top, 8)); }
         G_D(cx, y0 + h * 6 / 10, 6 + (q < 64u ? 3 : 0), acc);
         break;
     case 2:   /* the psychedelic spiral */
         for (k = 0; k < 40u; k++) { uint32_t a = (k * 13u + ms / 15u) & 255u; int32_t r = (int32_t)k * h / 90; G_R(cx + gv_sin(a) * r / 127, y0 + h / 2 + gv_sin((a + 64u) & 255u) * r / 127, 2, 2, k & 1u ? acc : RGB(0xff, 0x6f, 0xb5)); }
         break;
     case 3:   /* the wall of speakers (free party) */
-        for (k = 0; k < 8u; k++) { int32_t sx = x0 + 4 + (int32_t)(k % 4u) * (w - 8) / 4 + ((int32_t)k / 4) * w / 8, sy = fl - 18 - (int32_t)(k / 4u) * 20, r = 6 + (q < 64u ? 2 : 0);
-            G_R(sx, sy, w / 5, 18, RGB(0x1a, 0x1a, 0x1e)); G_D(sx + w / 10, sy + 9, r, RGB(0x05, 0x05, 0x05)); G_C(sx + w / 10, sy + 9, r, acc); }
+        for (k = 0; k < 8u; k++) { int32_t sx = x0 + 4 + (int32_t)(k % 4u) * (w - 8) / 4 + ((int32_t)k / 4) * w / 16, sy = fl - 18 - (int32_t)(k / 4u) * 20, r = 6 + (q < 64u ? 2 : 0);
+            G_R(sx, sy, w / 6, 18, RGB(0x1a, 0x1a, 0x1e)); G_D(sx + w / 12, sy + 9, r > w / 14 ? w / 14 : r, RGB(0x05, 0x05, 0x05)); G_C(sx + w / 12, sy + 9, r > w / 14 ? w / 14 : r, acc); }
         break;
     case 4: { /* the acid smiley */
         int32_t sy = y0 + h / 2 - 6 + (q < 64u ? -3 : 0), r = h / 5;
@@ -1049,7 +1087,7 @@ static void gv_stage(uint32_t st, int32_t x0, int32_t y0, int32_t w, int32_t h, 
         break;
     }
     G_R(x0, fl, w, y0 + h - fl, RGB(0x10, 0x10, 0x14));
-    if (u) gv_mon(x0 + w * 82 / 100, fl, u);
+    if (u) gv_mon(KIND[s] == 1u ? cx : x0 + w * 82 / 100, fl, u);
 }
 static void gv_perfmini(int32_t y)                   /* the 16 pads, small (the web's perfMini) */
 {
@@ -1412,7 +1450,7 @@ static void gv_draw_body(void)
         }
         G_TC(120, 176, 1, d ? "KNOB 1 = MODELE  2 = ACCORD  3 = DECAY" : "SAMPLES ET PIANO : VERSION WEB", GC_M);
         break; }
-    case GP_FXD: {
+    case GP_FXD: case GP_SONR: case GP_SEDIT: {
         uint8_t kn[4];
         gv_knobs(kn);
         G_TC(120, 40, 2, gu.page == GP_FXD ? "TOUTE LA BATTERIE" : gv_name(gv.sel), gu.page == GP_FXD ? GC_C : gv_col(gv.sel));
@@ -1561,10 +1599,53 @@ static void gv_draw_body(void)
         break; }
     case GP_VIS: {                                     /* the style's scene, the monster dancing, the chords */
         const uint8_t *p = gv_progp();
-        gv_stage(gv.style, 0, 31, 240, 140, 3);
-        G_R(4, 35, G_TW(2, GV_STN[gv.style]) + 10, 17, RGB(0x10, 0x10, 0x14)); G_T(9, 39, 2, GV_STN[gv.style], GC_T);
+        gv_stage(gu.sty, 0, 31, 240, 140, 3);
+        G_R(4, 35, G_TW(2, GV_STN[gu.sty]) + 10, 17, RGB(0x10, 0x10, 0x14)); G_T(9, 39, 2, GV_STN[gu.sty], gu.sty == gv.style ? GC_T : GC_C);
         gv_fmt(b, "M%d", (int)(gv_bar & 3u) + 1); G_R(200, 35, 36, 17, RGB(0x10, 0x10, 0x14)); G_TC(218, 39, 2, b, GC_Y);
         if (p) for (i = 0; i < 4u; i++) G_TC(36 + (int32_t)i * 56, 174, 1, gv_degname(p[i]), song.playing && gv_cix == i ? GC_Y : GC_T);
+        break; }
+    case GP_BKR: case GP_BKM: {                        /* 8 slots, each a small picture of what it holds */
+        int mel = gu.page == GP_BKM;
+        static const char *const MD[3] = {"TOUCHES 1-8 : CHARGER (VIDE : ENREGISTRER)", "TOUCHES 1-8 : ENREGISTRER", "TOUCHES 1-8 : EFFACER"};
+        G_TC(120, 36, 1, MD[gu.bmode % 3u], gu.bmode == 2u ? GC_R : GC_Y);
+        for (i = 0; i < 8u; i++) {
+            int32_t x = 3 + (int32_t)(i % 4u) * 59, y = 48 + (int32_t)(i / 4u) * 62, used = (int32_t)(((mel ? gu.mbu : gu.rbu) >> i) & 1u),
+                    cur = used && (int32_t)i == (mel ? gu.mcur : gu.rcur), c, r;
+            G_R(x, y, 56, 58, used ? GC_P2 : GC_P);
+            G_F(x, y, 56, 58, cur ? (mel ? GC_A : GC_Y) : GC_P2);
+            gv_fmt(b, "%d", (int)i + 1);
+            G_T(x + 4, y + 4, 2, b, cur ? GC_Y : GC_M);
+            if (!used) { G_TC(x + 28, y + 34, 1, "VIDE", GC_L); continue; }
+            if (mel) { for (c = 0; c < 16; c++) { const gv_step_t *st = &gu.mb[i][c]; if (st->n >= 0) G_R(x + 4 + c * 3, y + 52 - gv_clamp(st->n, 0, 14) * 2, 3, 2, gv_col(gv.sel < 8 ? 8 : gv.sel)); } }
+            else for (r = 0; r < 8; r++) for (c = 0; c < 16; c++) if ((gu.rb[i][r] >> (15 - c)) & 1u) G_R(x + 4 + c * 3, y + 22 + r * 4, 2, 3, GV_ROWC[r]);
+        }
+        G_TC(120, 176, 1, mel ? "LES MELODIES DE LA PISTE CHOISIE" : "LES RYTHMES (8 LIGNES)", GC_M);
+        break; }
+    case GP_EMIDI: {                                   /* the tracks and where they play */
+        gv_fmt(b, "HORLOGE %s", GP[G_CLOCK].names[song.g[G_CLOCK]]);
+        G_T(6, 36, 1, b, GC_C);
+        for (i = 0; i < 14u; i++) {
+            int32_t x = 3 + (int32_t)(i / 7u) * 119, y = 48 + (int32_t)(i % 7u) * 18, on = (int32_t)i == gv.sel;
+            if (on) { G_R(x, y, 115, 16, GC_P2); G_F(x, y, 115, 16, GC_T); }
+            G_R(x + 2, y + 2, 3, 12, gv_col((int)i));
+            G_T(x + 9, y + 5, 1, gv_name((int)i), gv_col((int)i));
+            if (i < 8u) { gv_fmt(b, "CH %d", (int)song.g[G_DRCH]); G_TR(x + 111, y + 5, 1, b, GC_T); }
+            else G_TR(x + 111, y + 5, 1, "INTERNE", GC_M);
+        }
+        G_TC(120, 177, 1, "BATTERIE : NOTES MIDI USB  MELODIE : SON INTERNE", GC_M);
+        break; }
+    case GP_MIDI: {
+        static const char *const LB[4] = {"USB MIDI", "HORLOGE", "ENVOI HORLOGE", "CANAL BATTERIE"};
+        for (i = 0; i < 4u; i++) {
+            int32_t y = 44 + (int32_t)i * 32;
+            G_R(6, y, 228, 28, GC_P);
+            G_T(12, y + 10, 1, LB[i], GC_M);
+            if (i == 0u) gv_fmt(b, "CABLE USB");
+            else if (i == 1u) gv_fmt(b, "%s", GP[G_CLOCK].names[song.g[G_CLOCK]]);
+            else if (i == 2u) gv_fmt(b, "%s", GP[G_SYNC].names[song.g[G_SYNC]]);
+            else gv_fmt(b, "%d", (int)song.g[G_DRCH]);
+            G_TR(228, y + 8, 2, b, i == 0u ? GC_C : GC_T);
+        }
         break; }
     case GP_SAVE: {                                    /* the bank: 8 rhythms, 8 melodies (RAM: until power-off) */
         static const char *const MD[3] = {"TOUCHE : CHARGER (VIDE : ENREGISTRER)", "TOUCHE : ENREGISTRER", "TOUCHE : EFFACER"};
@@ -1642,6 +1723,8 @@ static int gv_ui_leds(void)
         case GP_MIX: case GP_LRR: on = gv_lrr_on(j); break;
         case GP_VIS: on = j < 6u; break;
         case GP_SAVE: on = (int)((j < 8u ? gu.rbu : gu.mbu) >> (j & 7u)) & 1; break;
+        case GP_BKR: on = j < 8u && ((gu.rbu >> j) & 1u); break;
+        case GP_BKM: on = j < 8u && ((gu.mbu >> j) & 1u); break;
         default: break;
         }
         led_put(nl, 14u + STEP_KEY[j], on);

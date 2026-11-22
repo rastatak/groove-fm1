@@ -394,7 +394,7 @@ PAGES.gvis={t:'VISU',
   knobs:()=>[bpmK(),djK(),swK(),K('AUTO RYT.',()=>Math.max(0,AUS.indexOf(S.auto||0)),v=>{S.auto=AUS[v];},0,AUS.length-1,1,v=>AUS[v]?AUS[v]+' MES':'OFF')],
   low:(j,dn)=>{if(!dn)return;if(j===0)rndRhythm();else if(j===1){S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});say('Nouvelles mélodies sur les accords');}else if(j===2)longArp();else if(j===3){$('#vary').onclick();say('Rythme varié');}else if(j===4){S.tracks.forEach((t,i)=>varyMel(i));say('Mélodies variées');}else if(j===5)toggle();},
   lab:()=>({low:['🎲 RYTHME','🎲 MÉLODIES','🎲 TOUT','VARIER RYT.','VARIER MÉL.',playing?'■ STOP':'▶ PLAY',...blank(10)],on:j=>j<6}),
-  sel:d=>{const k=(STY.indexOf(S.style)+d+STY.length)%STY.length;M.sty=k;toast(STY[k].toUpperCase()+' · ARP MAINTENU = VALIDER');},click:longArp,
+  sel:d=>{const k=((M.sty==null?STY.indexOf(S.style):M.sty)+d+STY.length)%STY.length;M.sty=k;toast(STY[k].toUpperCase()+' · ARP MAINTENU = VALIDER');},click:longArp,
   help:[['Visu','l’animation du style joué, sur le tempo'],['Touches du bas','1 🎲 rythme · 2 🎲 mélodies · 3 🎲 tout · 4 varier le rythme · 5 varier les mélodies · 6 play / stop'],['ARP maintenu 2 s','valider le style choisi et tout regénérer']]};
 // ---------- FX, page 1 : le récap de tous les effets, chacun coupable d'une touche ; FX maintenu = remettre à zéro ----------
 const anyT=(f)=>S.tracks.some(f)||S.rows.some(f);
@@ -457,7 +457,7 @@ const page=()=>PAGES[M.page];
 function goPage(p,keep){const P=PAGES[p];
   if(P.sc==='r'&&!isD())M.pt=M.lastRow;if(P.sc==='t'&&isD()){M.pt=8+M.lastTrk;S.sel=M.lastTrk;}
   if(!keep)lvUp();M.held.clear();M.page=p;M.grp=grpOf(p);M.sub[M.grp]=GRP[M.grp].indexOf(p);
-  if(p==='son'||p==='sonr')LIBP.enter();if(p==='gsty')M.sty=Math.max(0,STY.indexOf(S.style));if(p!=='sedit')seStop();if(p==='nom'&&M.nr<0)M.nr=S.cur;if(p!=='nom'&&M.page!=='bank')M.nr=-1;if(p==='bank'&&!M.bi)M.bi=0;if(p==='ryt'||p==='mel')M.cur=Math.max(0,curStep);
+  if(p==='son'||p==='sonr')LIBP.enter();if(p==='gsty'||p==='gvis')M.sty=Math.max(0,STY.indexOf(S.style));if(p!=='sedit')seStop();if(p==='nom'&&M.nr<0)M.nr=S.cur;if(p!=='nom'&&M.page!=='bank')M.nr=-1;if(p==='bank'&&!M.bi)M.bi=0;if(p==='ryt'||p==='mel')M.cur=Math.max(0,curStep);
   panelDirty=1;}
 // Un bouton : sa dernière page, puis la suivante à chaque nouvel appui
 function pageBtn(b){const L=GRP[b];if(M.grp===b)goPage(L[(L.indexOf(M.page)+1)%L.length]);else goPage(L[M.sub[b]||0]);}
@@ -483,7 +483,7 @@ function upKey(k,dn){if(kpOn()&&!isD()){if(dn)M.upDown.add(k);else M.upDown.dele
 function lowKey(j,dn){if(dn)M.lowDown.add(j);else M.lowDown.delete(j);if(kpOn()){if(isD())return kpKey(j%8,dn,j>=8);return kpKey(WHITE[j],dn);}page().low(j,dn);}
 function longHome(){if(isD())rndRow(M.pt);else rndTrk(ti());M.flash=performance.now();}
 // ARP maintenu : valide le style choisi (page STYLES) puis regénère le rythme et toutes les mélodies
-function longArp(){const st=M.grp==='ARP'&&M.page==='gsty'?STY[M.sty]:S.style;setStyle(st);styleSc();randomRhythm();S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});M.sty=STY.indexOf(st);save();M.flash=performance.now();
+function longArp(){const st=M.grp==='ARP'&&(M.page==='gsty'||M.page==='gvis')&&STY[M.sty]?STY[M.sty]:S.style;setStyle(st);styleSc();randomRhythm();S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});M.sty=STY.indexOf(st);save();M.flash=performance.now();
   say('🎲 Style '+st+' : '+S.bpm+' BPM · gamme '+S.scale+' · nouveau rythme et nouvelles mélodies'+(playing?' (le rythme change à la mesure)':' — PLAY pour écouter'));}
 const LONG={FX:{fn:longFx,l:()=>'↺ MAINTIENS : '+(M.grp==='FX'&&M.page!=='fxr'?PAGES[M.page].t+' À ZÉRO':'COUPER TOUS LES EFFETS')},HOME:{fn:longHome,l:()=>'🎲 MAINTIENS : '+(isD()?'NOUVEAU MOTIF ':'NOUVELLE MÉLODIE ')+nameOf(M.pt)},ARP:{fn:longArp,l:()=>'🎲 MAINTIENS : '+(M.page==='gsty'?STY[M.sty]:S.style).toUpperCase()+' · TOUT REGÉNÉRER'}};
 function btn(n,dn){
@@ -720,7 +720,7 @@ gsty(){const n=8,top=clamp(M.sty-3,0,STY.length-n);STY.slice(top,top+n).forEach(
   const st=STY[M.sty];g.save();g.beginPath();g.roundRect(118,38,120,108,5);g.clip();g.translate(118,38);g.scale(120/240,108/112);drawStyle(g,st,240,112,(108/112)/(120/240));g.restore();rr(118,38,120,108,5,null,COL.l,1);
   tx(STYLES[st].bpm+' BPM · '+(STYLES[st].sc||'Mineur').toUpperCase(),178,158,COL.t,8,'center',800);
   tx(st===S.style?'● EN COURS':'ARP MAINTENU = VALIDER',178,172,st===S.style?COL.y:COL.c,8,'center',800);tx((M.sty+1)+'/'+STY.length,58,176,COL.m,8,'center',700);},
-gvis(){g.save();g.beginPath();g.rect(0,36,240,144);g.clip();g.translate(0,36);g.scale(1,144/112);drawStyle(g,S.style,240,112,144/112);g.restore();
+gvis(){g.save();g.beginPath();g.rect(0,36,240,144);g.clip();g.translate(0,36);g.scale(1,144/112);drawStyle(g,STY[M.sty]||S.style,240,112,144/112);g.restore();
   rr(4,40,Math.min(180,S.style.length*11+64),20,4,'rgba(0,0,0,.6)');tx(S.style.toUpperCase(),10,55,'#fff',13,'left',900);
   rr(176,40,60,20,4,'rgba(0,0,0,.6)');tx(playing?'M'+bar+' · '+(Math.floor(Math.max(0,curStep)/4)+1):'■',206,54,playing?COL.y:COL.m,10,'center',800);
   const p=prg();if(p){rr(4,152,232,20,4,'rgba(0,0,0,.6)');tx(p.map((r,k)=>(playing&&k===cix?'▶':'')+chName(r)).join('  ·  '),120,166,COL.y,9,'center',800);}},

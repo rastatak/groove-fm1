@@ -101,13 +101,13 @@ toute la mélodie, basse, basse 2, synthé, synthé 2, nappe, fx). Les touches 9
 - C : chorus, roll ×2/×3/×4, pas sautés, reverse
 - D : loop 1-8 pas, bitcrush, gate, demi-tempo
 
-## 6. Ce que la version 0.1 ne fait pas encore
+## 6. Ce que le firmware ne fait pas (encore)
 
-- Les mélodies et réglages Groove ne sont pas encore gardés à l'extinction : la batterie se sauve avec les
-  projets d'Hortator, les mélodies sont régénérées au démarrage.
-- Pas d'échantillons (samples) ni de piano dans les pistes mélodiques : ce sont des synthés.
-- Pas d'animations de scènes (ville, monstre…) sur l'écran de la machine : elles sont dans la version web.
-- La charge du processeur avec 8 batteries + 6 synthés n'a pas pu être mesurée sur la vraie puce.
+- La **banque SAVE** (8 rythmes, 8 mélodies) reste en mémoire jusqu'à l'extinction : elle n'est pas encore
+  gardée dans la flash. La batterie se sauve aussi avec les projets d'Hortator.
+- Pas d'échantillons (samples) ni de piano, pas d'éditeur de sons, pas d'enregistrement des mouvements de knobs,
+  pas de canaux MIDI par piste : ces parties sont dans la version web.
+- Les décors des styles et des gammes sont en pixel art, plus simples que ceux de la version web.
 
 ## 7. Revenir au firmware officiel
 
