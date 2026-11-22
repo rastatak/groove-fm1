@@ -227,6 +227,8 @@ static void ui_leds(void)
         led_pos_init();
         ready = 1;
     }
+    if (gv_ui_leds())                                 /* Groove's LEDs (groove_ui.c) */
+        return;
     led_put(nl, panel.btn[FAM_BTN[fam]],                /* LAYER: EDIT blinks, 250 ms on / off */
             fam != FAM_LAY || ((fm1_ticks() / (250u * 1000u * FM1_TICKS_PER_US)) & 1u));
     led_put(nl, panel.btn[B_PLAY], song.playing && ((song.tick / 64u) & 1u) == 0u);   /* blinks: intended */
@@ -1218,6 +1220,8 @@ static void ui_input(void)
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && fam == FAM_SEQ), acts;
     int32_t s, dt;
     if (safe_start)                                     /* safe start: no pages, no edits */
+        return;
+    if (gv_ui_input(pressed, notes, now))              /* Groove owns the panel (groove_ui.c) */
         return;
 #if USB8_OK
     usb_mode_service();                                 /* MENU > USB AUDIO: the reconnect, once the menu closed */

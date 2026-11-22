@@ -1,0 +1,639 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Groove (FM-1 Groove Studio) on Hortator: 2026, the Groove authors. Hortator: DEADACTIVE, on Felucca by Leo Kuroshita.
+ * The engine: 6 melodic tracks (BASSE, SYNTHE, BASSE 2, SYNTHE 2, NAPPE, FX) played by small subtractive voices,
+ * their 16-step patterns, and the web app's generators (styles, scales, chord progressions, melodies), on top of
+ * Hortator's 8 drum tracks. Same rules as the web app (data.js / app.js), so a groove sounds and behaves the same.
+ * Runs in the audio ISR (gv_tick, gv_render, gv_keys_isr) and in the main loop (gv_gen_*, the UI: groove_ui.c). */
+#include <stdarg.h>
+#include "gv_data.h"
+static int gv_abs(int v) { return v < 0 ? -v : v; }
+/* a tiny printf for the screen: %s %d %+d %% */
+static void gv_fmt(char *b, const char *f, ...)
+{
+    va_list ap;
+    char *o = b;
+    va_start(ap, f);
+    while (*f && o - b < 30) {
+        if (*f != '%') { *o++ = *f++; continue; }
+        f++;
+        if (*f == '%') { *o++ = '%'; f++; continue; }
+        if (*f == 's') { const char *s = va_arg(ap, const char *); while (*s && o - b < 30) *o++ = *s++; f++; continue; }
+        {
+            int plus = *f == '+', v, n = 0;
+            char d[12];
+            unsigned u;
+            if (plus) f++;
+            v = va_arg(ap, int);
+            if (v < 0) { *o++ = '-'; u = (unsigned)(-v); } else { if (plus) *o++ = '+'; u = (unsigned)v; }
+            do { d[n++] = (char)('0' + u % 10u); u /= 10u; } while (u);
+            while (n) *o++ = d[--n];
+            f++;
+        }
+    }
+    *o = 0;
+    va_end(ap);
+}
+
+#define GV_NT 6                    /* melodic tracks */
+#define GV_FS 44100u
+enum { GT_BASS, GT_SYNTH, GT_PAD, GT_FX };
+enum { GW_SAW, GW_SQR, GW_TRI };
+enum { GF_LP, GF_HP, GF_BP };
+/* the web app's rows of drums on Hortator's 8 tracks (power-on kit: kick snare clap hat-closed hat-open tom rim cymbal;
+ * Groove puts a conga on track 8 for PERC) */
+static const uint8_t GV_ROWTRK[8] = {0, 1, 2, 3, 4, 7, 5, 6};
+static const char *const GV_ROWN[8] = {"KICK", "SNARE", "CLAP", "HAT F.", "HAT O.", "PERC", "LOW", "RIM"};
+static const char *const GV_TRN[GV_NT] = {"BASSE", "SYNTHE", "BASSE 2", "SYNTHE 2", "NAPPE", "FX"};
+static const uint8_t GV_TTYPE[GV_NT] = {GT_BASS, GT_SYNTH, GT_BASS, GT_SYNTH, GT_PAD, GT_FX};
+static const uint8_t GV_AUS[7] = {0, 4, 8, 16, 32, 64, 128};
+
+typedef struct {                   /* one step (the web app's {n, a, s, o, l}) */
+    int8_t n;                      /* scale degree, -1 none */
+    uint8_t a : 1, s : 1, o4 : 2;  /* accent, slide, offset in quarter steps */
+    uint8_t l4;                    /* length in quarter steps (4 = one step) */
+} gv_step_t;
+
+typedef struct {                   /* a melodic track; knobs 0..127 like Hortator's */
+    uint8_t mute, wave, oct, ftype, lfw, lfs, ar, bw;
+    int8_t po;                     /* pitch, whole octaves -3..3 */
+    uint8_t vol, cut, res, env, att, dec, gl, lfr, lfd, dist, dly, rev;
+    uint8_t cho, rl, sk, rv, lp, cr, gt, hf;   /* FX LIVE pages C D: chorus, roll x2-4, skipped steps, reverse, loop
+                                    * 1-8 steps, bitcrush, gate, half tempo */
+    gv_step_t st[16];
+} gv_trk_t;
+
+typedef struct {                   /* everything Groove keeps (gv_save: flash) */
+    uint32_t magic;
+    uint8_t root, scale, prog, style, autob, oct;
+    int8_t sel;                    /* the track shown: 0..7 drum rows, 8..13 melodic tracks */
+    uint8_t gmute;                 /* bit 0 all the rhythm, bit 1 all the melody */
+    uint16_t solo;                 /* bit per track 0..13 */
+    uint8_t tpl;                   /* the template the drums came from (+1), 0 hand made */
+    uint8_t rowar[8];              /* auto-random per drum row, bars */
+    uint8_t rrl[8], rsk[8], rrv[8], rlp[8], rhf[8];   /* FX LIVE on the drum rows: roll, skipped steps, reverse, loop,
+                                    * half tempo (seq.c asks gv_drum_step) */
+    gv_trk_t t[GV_NT];
+} gv_state_t;
+#define GV_MAGIC 0x47525631u       /* "GRV1" */
+
+typedef struct {                   /* a voice, ISR only */
+    uint32_t ph[3], inc[3], tinc[3];
+    int32_t amp, atgt;             /* amplitude Q24 and where it goes */
+    int32_t fenv;                  /* filter envelope Q15 */
+    int32_t lp, bp;                /* SVF */
+    int32_t dlp;                   /* DIST tone */
+    uint32_t gate;                 /* samples left of the note, 0 = released */
+    uint32_t delay;                /* samples before it starts (an offset step) */
+    uint8_t acc, slide, on, nosc, fxs;
+    uint32_t lph;                  /* LFO phase */
+    uint32_t pinc[3];              /* the note waiting for its delay */
+    uint32_t pgate;
+    uint8_t pacc, pslide, pn;
+    int32_t crs; uint32_t crh, rlc;  /* bitcrush: the held sample, its countdown; roll: samples to the next hit */
+} gv_voice_t;
+
+static gv_state_t gv;
+static uint32_t gv_step_len(uint32_t pos);
+static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now);   /* groove_ui.c */
+static int gv_ui_draw(void);
+static int gv_ui_leds(void);
+static volatile uint8_t gv_kp;                  /* JEU on a LIVE page: every key plays the shown track */
+static volatile uint8_t gv_recq;                /* REC on: keys write into the pattern */
+static gv_voice_t gvv[GV_NT];
+static volatile uint8_t gv_on = 1;             /* the Groove UI owns the panel (else Hortator's own) */
+static volatile uint8_t gv_pos, gv_bar, gv_cix; /* step 0..15, bars since PLAY, the chord playing (0..3) */
+static uint32_t gv_acc_s, gv_stepn;            /* samples into the step, its length */
+static volatile uint32_t gv_hit_req;            /* main -> ISR: drum rows to hit now (bit per row) */
+static volatile int16_t gv_live_deg = -1000;    /* main -> ISR: the degree a black key plays on the shown track */
+static volatile uint8_t gv_live_trk = 0xFF, gv_live_off;
+static volatile uint8_t gv_regen_due;           /* ISR -> main: bit 0 a style auto-random, bits 1.. track auto-randoms */
+static volatile uint32_t gv_hit_t[14];          /* last hit per track (song.tick), the screen's flashes */
+static const uint32_t gv_inc_tab[128] = {   /* MIDI note -> phase increment at 44.1 kHz (no float on the device) */
+        796254u,     843601u,     893765u,     946911u,    1003217u,    1062871u,    1126073u,    1193033u,
+       1263974u,    1339134u,    1418763u,    1503127u,    1592507u,    1687203u,    1787529u,    1893821u,
+       2006434u,    2125742u,    2252146u,    2386065u,    2527948u,    2678268u,    2837526u,    3006254u,
+       3185015u,    3374406u,    3575058u,    3787642u,    4012867u,    4251485u,    4504291u,    4772130u,
+       5055896u,    5356535u,    5675051u,    6012507u,    6370030u,    6748811u,    7150117u,    7575285u,
+       8025735u,    8502970u,    9008582u,    9544261u,   10111792u,   10713070u,   11350103u,   12025015u,
+      12740059u,   13497623u,   14300233u,   15150569u,   16051469u,   17005939u,   18017165u,   19088521u,
+      20223584u,   21426141u,   22700205u,   24050030u,   25480119u,   26995246u,   28600467u,   30301139u,
+      32102938u,   34011878u,   36034330u,   38177043u,   40447168u,   42852281u,   45400411u,   48100060u,
+      50960238u,   53990491u,   57200933u,   60602278u,   64205876u,   68023757u,   72068660u,   76354085u,
+      80894335u,   85704563u,   90800821u,   96200119u,  101920476u,  107980983u,  114401866u,  121204555u,
+     128411753u,  136047513u,  144137319u,  152708170u,  161788671u,  171409126u,  181601643u,  192400238u,
+     203840952u,  215961966u,  228803732u,  242409110u,  256823506u,  272095026u,  288274639u,  305416341u,
+     323577341u,  342818251u,  363203285u,  384800477u,  407681904u,  431923931u,  457607465u,  484818220u,
+     513647012u,  544190053u,  576549277u,  610832681u,  647154683u,  685636503u,  726406571u,  769600953u,
+     815363807u,  863847862u,  915214929u,  969636441u, 1027294024u, 1088380105u, 1153098554u, 1221665363u};
+static uint32_t gv_rng = 0x2545F491u;
+
+static uint32_t gv_rand(void) { gv_rng ^= gv_rng << 13; gv_rng ^= gv_rng >> 17; gv_rng ^= gv_rng << 5; return gv_rng; }
+static uint32_t gv_rnd(uint32_t n) { return n ? gv_rand() % n : 0u; }
+static int gv_chance(uint32_t pct) { return gv_rnd(100) < pct; }
+#define GV_PICK(a) ((a)[gv_rnd(sizeof(a) / sizeof((a)[0]))])
+static int32_t gv_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static uint32_t gv_L(void) { return GV_SCL[gv.scale % GV_NSC]; }
+static int gv_t3(void) { return GV_SCP[gv.scale % GV_NSC][1]; }
+static int gv_t5(void) { return GV_SCP[gv.scale % GV_NSC][2]; }
+static const uint8_t *gv_progp(void) { return gv.prog && gv.prog <= GV_NPROG[gv.scale % GV_NSC] ? GV_PROG[gv.scale % GV_NSC][gv.prog - 1u] : 0; }
+/* the chord of the bar, as a degree offset (high chords played under the root, as the web app's chOff) */
+static int gv_choff(void)
+{
+    const uint8_t *p = gv_progp();
+    int r, L = (int)gv_L();
+    if (!p || !song.playing)
+        return 0;
+    r = p[gv_cix & 3u];
+    return r > L / 2 ? r - L : r;
+}
+/* degree -> MIDI note on a track (the web app's d2m, + its pitch) */
+static int gv_d2m(const gv_trk_t *t, int d)
+{
+    int L = (int)gv_L(), sc = gv.scale % GV_NSC, k = ((d % L) + L) % L, o = (d - k) / L;
+    return gv_clamp((int)gv.root + 12 * (t->oct + 1) + GV_SC[sc][k] + 12 * o + 12 * t->po, 0, 127);
+}
+
+/* ------------------------------------------------------------------ the generators (main loop) --- */
+static void gv_mel_clear(gv_trk_t *t)
+{
+    uint32_t c;
+    for (c = 0; c < 16u; c++) {
+        t->st[c].n = -1; t->st[c].a = t->st[c].s = 0; t->st[c].o4 = 0; t->st[c].l4 = 4;
+    }
+}
+static uint8_t gv_l4(uint32_t q) { return (uint8_t)(q < 1u ? 1u : q > 64u ? 64u : q); }
+/* a new melody for track i: rhythm on the grid (straight or syncopated as the scale likes), chord notes on the beats,
+ * passing notes between, the half bar repeated, an ending that resolves; arpeggios on synths; pads hold the chord */
+static void gv_gen_mel(uint32_t i)
+{
+    gv_trk_t *t = &gv.t[i];
+    int L = (int)gv_L(), t3 = gv_t3(), t5 = gv_t5(), ty = GV_TTYPE[i], bass = ty == GT_BASS;
+    int psy = bass && gv.style == 3u;              /* PSYTRANCE: the rolling bass */
+    uint32_t c;
+    gv_mel_clear(t);
+    if (ty == GT_PAD) {
+        if (gv_chance(35)) { t->st[0].n = 0; t->st[0].l4 = 32; t->st[8].n = (int8_t)(gv_chance(50) ? 0 : t3); t->st[8].l4 = 32; }
+        else { t->st[0].n = 0; t->st[0].l4 = 64; }
+        return;
+    }
+    if (ty == GT_FX) {
+        static const uint8_t POS[6] = {0, 4, 8, 12, 6, 14};
+        uint8_t p[6];
+        uint32_t k, n = 1u + gv_rnd(3);
+        for (k = 0; k < 6u; k++) p[k] = POS[k];
+        for (k = 5; k > 0; k--) { uint32_t j = gv_rnd(k + 1u); uint8_t x = p[k]; p[k] = p[j]; p[j] = x; }
+        for (k = 0; k < n; k++) {
+            int ch[4] = {L, L + t3, L + t5, t5};
+            static const uint8_t LN[3] = {4, 8, 8};
+            t->st[p[k]].n = (int8_t)ch[gv_rnd(4)];
+            t->st[p[k]].l4 = GV_PICK(LN);
+        }
+        return;
+    }
+    {
+        uint16_t rh;
+        int hits[16], nh = 0, k, last, d, arp = -1, al;
+        static const int8_t ARPS[6][6] = {{0, 3, 5, 7, -1, -1}, {0, 5, 7, 5, -1, -1}, {7, 5, 3, 0, -1, -1},
+                                          {0, 3, 5, 7, 5, 3}, {0, 7, 5, 7, 3, 7}, {0, 5, 10, 7, -1, -1}};
+        static const uint8_t ARPN[6] = {4, 4, 4, 6, 6, 4};
+        static const uint8_t AL[3] = {2, 3, 4};
+        int ct[6] = {0, t3, t5, L, L + t3, L + t5};
+        uint32_t sy = GV_SCP[gv.scale % GV_NSC][0] * (bass ? 10u : 16u) / 10u;
+        int syn = gv_chance(sy > 70u ? 70u : sy);
+        if (psy)
+            rh = 0x7777;
+        else if (bass)
+            rh = syn ? GV_PICK(GV_RH_BASS_B) : GV_PICK(GV_RH_BASS_A);
+        else
+            rh = syn ? GV_PICK(GV_RH_SYNTH_B) : GV_PICK(GV_RH_SYNTH_A);
+        for (c = 0; c < 16u; c++)
+            if ((rh >> (15u - c)) & 1u)
+                hits[nh++] = (int)c;
+        last = nh - 1;
+        if (!bass && gv_chance(50))
+            arp = (int)gv_rnd(6);
+        al = GV_PICK(AL);
+        { int d0[3] = {t3, t5, L}; d = d0[gv_rnd(3)]; }
+        for (k = 0; k < nh; k++) {
+            int cc = hits[k], f = (k < last ? hits[k + 1] : 16) - cc;
+            gv_step_t *s = &t->st[cc];
+            if (bass) {
+                if (psy)
+                    s->n = (int8_t)(gv_chance(90) ? 0 : L);
+                else if (!k || cc % 8 == 0)
+                    s->n = 0;
+                else { int b7[7] = {0, 0, 0, 0, L, L, t5}; s->n = (int8_t)b7[gv_rnd(7)]; }
+            } else if (arp >= 0) {
+                int a = ARPS[arp][k % ARPN[arp]];   /* the arpeggio's chord tones (0 root, 3 third, 5 fifth, 7 octave) */
+                s->n = (int8_t)(a == 0 ? 0 : a == 3 ? t3 : a == 5 ? t5 : a == 7 ? L : a == 10 ? L + t3 : 0);
+            } else {
+                int near, bd = 99, j;
+                if (k == last || cc % 4 == 0) {
+                    int x = k == last ? d : d + (int)gv_rnd(3) - 1;
+                    near = ct[0];
+                    for (j = 0; j < 6; j++) if (gv_abs(ct[j] - x) < bd) { bd = gv_abs(ct[j] - x); near = ct[j]; }
+                    if (k != last && cc >= 8 && t->st[cc - 8].n >= 0) near = t->st[cc - 8].n;
+                    d = near;
+                } else if (cc >= 8 && t->st[cc - 8].n >= 0) {
+                    d = t->st[cc - 8].n;
+                } else {
+                    static const int8_t MV[6] = {-2, -1, -1, 1, 1, 2};
+                    d = gv_clamp(d + GV_PICK(MV), 0, L + t5);
+                }
+                s->n = (int8_t)d;
+            }
+            s->a = (cc % 4 == 0 && gv_chance(40)) ? 1u : 0u;
+            {
+                uint32_t l4;
+                static const uint8_t SH[3] = {2, 3, 4}, LG[4] = {4, 8, 8, 12}, PS[2] = {2, 3};
+                if (psy) l4 = GV_PICK(PS);
+                else if (arp >= 0) l4 = (uint32_t)al;
+                else if (bass) l4 = gv_chance(30) ? (uint32_t)f * 4u : GV_PICK(SH);
+                else if (k == last) l4 = 16;
+                else l4 = gv_chance(40) ? GV_PICK(LG) : GV_PICK(SH);
+                if (l4 > (uint32_t)f * 4u) l4 = (uint32_t)f * 4u;
+                s->l4 = gv_l4(l4);
+            }
+            if (f == 1 && k < last && gv_chance(bass ? 18u : 8u))
+                s->s = 1;
+        }
+    }
+}
+/* VARIER for a melody: 3 or 4 touches in the scale, the motif stays */
+static void gv_vary_mel(uint32_t i)
+{
+    gv_trk_t *t = &gv.t[i];
+    int on[16], n = 0, k, mx = 2 * (int)gv_L();
+    for (k = 0; k < 16; k++) if (t->st[k].n >= 0) on[n++] = k;
+    if (!n) { gv_gen_mel(i); return; }
+    for (k = 0; k < 3 + (int)gv_rnd(2); k++) {
+        gv_step_t *s = &t->st[on[gv_rnd((uint32_t)n)]];
+        uint32_t r = gv_rnd(100);
+        static const int8_t MV[4] = {-2, -1, 1, 2};
+        if (r < 60) s->n = (int8_t)gv_clamp(s->n + GV_PICK(MV), 0, mx);
+        else if (r < 80) { int c = (int)(s - t->st), e; for (e = c + 1; e < 16; e++) if (t->st[e].n < 0 && !(e & 1)) { t->st[e].n = s->n; t->st[e].l4 = 4; break; } }
+        else s->a ^= 1u;
+    }
+}
+static void gv_rhythm_row_set(uint32_t row, uint16_t bits)
+{
+    track_t *t = &trk[GV_ROWTRK[row & 7u]];
+    uint32_t c;
+    for (c = 0; c < 16u; c++) {
+        step_t *s = &t->step[c];
+        s->on = (bits >> (15u - c)) & 1u;
+        s->acc = 0;
+    }
+    t->p[P_SLEN] = 16;
+}
+static uint16_t gv_rhythm_row_get(uint32_t row)
+{
+    const track_t *t = &trk[GV_ROWTRK[row & 7u]];
+    uint32_t c;
+    uint16_t b = 0;
+    for (c = 0; c < 16u; c++)
+        if (t->step[c].on) b |= (uint16_t)(1u << (15u - c));
+    return b;
+}
+/* a new rhythm in the style: one of its templates, not the one playing */
+static void gv_gen_rhythm(void)
+{
+    uint32_t st = gv.style % GV_NSTY, n = GV_NTP[st], k, r;
+    do k = gv_rnd(n); while (n > 1u && gv.tpl == k + 1u);
+    for (r = 0; r < 8u; r++) gv_rhythm_row_set(r, GV_TPL[st][k][r]);
+    gv.tpl = (uint8_t)(k + 1u);
+}
+/* one drum row from another template (the style's if it can) */
+static void gv_gen_row(uint32_t row)
+{
+    uint16_t now = gv_rhythm_row_get(row), c[GV_NSTY * GV_NTPL];
+    uint32_t n = 0, s, k, st = gv.style % GV_NSTY;
+    for (k = 0; k < GV_NTP[st]; k++) if (GV_TPL[st][k][row] && GV_TPL[st][k][row] != now) c[n++] = GV_TPL[st][k][row];
+    if (!n)
+        for (s = 0; s < GV_NSTY; s++) for (k = 0; k < GV_NTP[s]; k++) if (GV_TPL[s][k][row] && GV_TPL[s][k][row] != now) c[n++] = GV_TPL[s][k][row];
+    if (n) gv_rhythm_row_set(row, c[gv_rnd(n)]);
+    gv.tpl = 0;
+}
+static void gv_vary_rhythm(void)
+{
+    uint32_t k;
+    for (k = 0; k < 4u; k++) {
+        uint32_t r = 3u + gv_rnd(5), c = gv_rnd(16);
+        step_t *s = &trk[GV_ROWTRK[r]].step[c];
+        s->on ^= 1u;
+    }
+    gv.tpl = 0;
+}
+/* a style: its tempo, its scale (notes moved onto the nearest of the new scale), a new rhythm */
+static void gv_set_scale(uint32_t sc)
+{
+    uint32_t i, c, a = gv.scale % GV_NSC, b = sc % GV_NSC, La = GV_SCL[a], Lb = GV_SCL[b];
+    if (a == b) return;
+    for (i = 0; i < GV_NT; i++)
+        for (c = 0; c < 16u; c++) {
+            gv_step_t *s = &gv.t[i].st[c];
+            int sem, d, best = 0, bd = 99;
+            if (s->n < 0) continue;
+            sem = GV_SC[a][s->n % La] + 12 * (s->n / (int)La);
+            for (d = 0; d <= 2 * (int)Lb; d++) { int x = gv_abs(GV_SC[b][d % Lb] + 12 * (d / (int)Lb) - sem); if (x < bd) { bd = x; best = d; } }
+            s->n = (int8_t)best;
+        }
+    gv.scale = (uint8_t)b;
+    if (gv.prog > GV_NPROG[b]) gv.prog = GV_NPROG[b];
+}
+static void gv_set_style(uint32_t st)
+{
+    gv.style = (uint8_t)(st % GV_NSTY);
+    song.g[G_BPM] = GV_STBPM[gv.style];
+    if (GV_STSC[gv.style] >= 0) gv_set_scale((uint32_t)GV_STSC[gv.style]);
+}
+static void gv_gen_all(void)                   /* the style's rhythm + a melody on every track (ARP held) */
+{
+    uint32_t i;
+    gv_gen_rhythm();
+    for (i = 0; i < GV_NT; i++) gv_gen_mel(i);
+}
+
+/* ------------------------------------------------------------------ voices (audio ISR) --- */
+static void gv_note_on(uint32_t i, int deg, uint32_t gate, int acc, int slide, uint32_t delay)
+{
+    gv_voice_t *v = &gvv[i];
+    const gv_trk_t *t = &gv.t[i];
+    uint32_t k, n = GV_TTYPE[i] == GT_PAD ? 3u : 1u;
+    int off[3] = {0, gv_t3(), gv_t5()};
+    for (k = 0; k < n; k++) v->pinc[k] = gv_inc_tab[gv_d2m(t, deg + off[k])];
+    v->pgate = gate ? gate : 0xFFFFFFFFu;
+    v->pacc = (uint8_t)acc; v->pslide = (uint8_t)slide; v->pn = (uint8_t)n;
+    v->delay = delay ? delay : 1u;
+    gv_hit_t[8u + i] = song.tick + (delay >> 8);
+}
+static void gv_note_start(uint32_t i)
+{
+    gv_voice_t *v = &gvv[i];
+    const gv_trk_t *t = &gv.t[i];
+    uint32_t k, legato = v->slide && v->on && v->gate;
+    v->nosc = v->pn;
+    for (k = 0; k < v->nosc; k++) {
+        v->tinc[k] = v->pinc[k];
+        if (!legato && !t->gl) v->inc[k] = v->pinc[k];
+        else if (!v->inc[k]) v->inc[k] = v->pinc[k];
+    }
+    if (GV_TTYPE[i] == GT_FX) { v->inc[0] = v->tinc[0] * 4u > v->tinc[0] ? v->tinc[0] * 4u : v->tinc[0]; v->fxs = 1; }
+    v->gate = v->pgate;
+    v->acc = v->pacc;
+    v->slide = v->pslide;
+    v->atgt = (v->acc ? 1 << 24 : (int32_t)(0.72f * (1 << 24))) ;
+    if (!legato) v->fenv = 32767;
+    v->on = 1;
+}
+static void gv_note_off(uint32_t i) { gvv[i].gate = 0; gvv[i].delay = 0; }
+
+static void gv_init_tables(void) {}
+/* cutoff (0..127 << 8, + envelope and LFO) -> SVF coefficient Q15 ~ 2 pi fc / fs, fc 40 Hz .. ~12 kHz, exponential */
+static int32_t gv_fcoef(int32_t c7)
+{
+    int32_t c = gv_clamp(c7, 0, 127 << 8), o = c * 82 / 1280;   /* octaves above 40 Hz, x256 */
+    int32_t fr = (int32_t)(40u << (o >> 8)) * (256 + (o & 255) * 181 / 256) / 256, k;
+    k = fr * (int32_t)(205887u * 1024u / GV_FS) >> 10;         /* 2 pi x 32768 / FS (no 64-bit division in the ISR) */
+    return k > 30000 ? 30000 : k < 60 ? 60 : k;
+}
+static int32_t gv_osc(uint32_t ph, uint32_t w)
+{
+    int32_t x = (int32_t)(ph >> 16) - 32768;       /* saw */
+    if (w == GW_SQR) return ph < 0x80000000u ? 26000 : -26000;
+    if (w == GW_TRI) return x < 0 ? 2 * x + 32767 : 32767 - 2 * x;
+    return x;
+}
+static int32_t gv_lfo(gv_voice_t *v, const gv_trk_t *t, uint32_t n)
+{
+    static const uint8_t DIVQ[5] = {64, 32, 16, 8, 4};     /* 1 bar .. 1/16, in 1/16 steps x4 */
+    uint32_t hz256;                                       /* rate, Hz * 256 */
+    int32_t ph, y;
+    if (t->lfs) hz256 = (uint32_t)song.g[G_BPM] * 256u * 16u / (60u * DIVQ[(t->lfr * 4u + 63u) / 127u > 4u ? 4u : (t->lfr * 4u + 63u) / 127u]);
+    else hz256 = 26u + (uint32_t)t->lfr * t->lfr * 5120u / 16129u;   /* 0.1 .. 20 Hz */
+    v->lph += hz256 * (16777216u / GV_FS) * n;           /* 2^32 / (FS x 256) a Hz/256, per sample */
+    ph = (int32_t)(v->lph >> 16) - 32768;
+    switch (t->lfw) {
+    case 1: y = ph < 0 ? 2 * ph + 32767 : 32767 - 2 * ph; break;
+    case 2: y = ph < 0 ? 32767 : -32767; break;
+    case 3: y = ph; break;
+    default: { int32_t x = ph, a = x < 0 ? -x : x; y = (int32_t)(((int64_t)x * (65536 - a)) >> 14); y = gv_clamp(y, -32767, 32767); }
+    }
+    return y;                                            /* -32767..32767 */
+}
+static int gv_track_heard(uint32_t k)                     /* 0..7 rows, 8..13 tracks: solo / mute / group mute */
+{
+    if (k >= 8u && (gv.gmute & 2u)) return 0;
+    if (gv.solo) return (gv.solo >> k) & 1u;
+    return k < 8u ? !trk[GV_ROWTRK[k]].p[P_MUTE] : !gv.t[k - 8u].mute;
+}
+/* the 6 tracks into the mix (fx.c mix_block: after the drums), sends to the delay and the reverb */
+static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_t *sr, uint32_t n)
+{
+    uint32_t i, j, k, sn = gv_stepn ? gv_stepn : gv_step_len(gv_pos);
+    for (i = 0; i < GV_NT; i++) {
+        gv_voice_t *v = &gvv[i];
+        const gv_trk_t *t = &gv.t[i];
+        int32_t lfo, cbase, q, fk = 1000, vol, dly, rev, drive, cho, gtv;
+        uint32_t rper = t->rl > 1u ? sn / t->rl : 0u, crk = 1u + t->cr / 16u, crb = t->cr / 11u;
+        uint32_t ty = GV_TTYPE[i];
+        if (!v->on && !v->delay) continue;
+        lfo = t->lfd ? gv_lfo(v, t, n) : 0;
+        q = 32767 - t->res * 240;                     /* damping: less = more resonance */
+        vol = gv_track_heard(8u + i) ? t->vol * 200 : 0;   /* x VOICE_FS-ish level */
+        dly = t->dly * 258; rev = t->rev * 258;
+        drive = t->dist;
+        cho = t->cho * 258; gtv = 127 - t->gt;
+        if (rper && (!v->rlc || v->rlc > rper)) v->rlc = rper - gv_acc_s % rper;
+        for (j = 0; j < n; j++) {
+            int32_t x = 0, s, hp;
+            if (v->delay && !--v->delay) gv_note_start(i);
+            if (!v->on) continue;
+            for (k = 0; k < v->nosc; k++) {
+                if (v->inc[k] != v->tinc[k]) {               /* glide (or a slide) */
+                    int32_t d = (int32_t)(v->tinc[k] - v->inc[k]);
+                    uint32_t g = v->fxs ? 900u + t->dec * 20u : (v->slide ? 600u : 40u + (uint32_t)t->gl * 40u);
+                    v->inc[k] += (uint32_t)(d / (int32_t)g + (d > 0 ? 1 : d < 0 ? -1 : 0));
+                }
+                v->ph[k] += v->inc[k];
+                x += gv_osc(v->ph[k] + (k ? k * 0x1234567u : 0u), t->wave) / (int32_t)(v->nosc == 3u ? 3 : 1);
+            }
+            if (v->gate) { if (v->gate != 0xFFFFFFFFu) v->gate--; }
+            else v->atgt = 0;
+            {   /* amplitude: attack to the target, release when the gate closes */
+                int32_t r = v->atgt > v->amp ? (ty == GT_PAD ? 9 + t->att / 12 : 4 + t->att / 14) : (ty == GT_PAD ? 12 : 9);
+                v->amp += (v->atgt - v->amp) >> r;
+            }
+            v->fenv -= v->fenv >> (7 + t->dec / 18);
+            if ((j & 15u) == 0u) {
+                cbase = (t->cut << 8) + ((v->fenv * t->env * (v->acc ? 3 : 2)) >> 15) * 64 + ((lfo * t->lfd) >> 15) * 64;
+                fk = gv_fcoef(cbase);
+            }
+            /* Chamberlin SVF */
+            v->lp += (fk * v->bp) >> 15;
+            hp = x - v->lp - ((q * v->bp) >> 15);
+            v->bp += (fk * hp) >> 15;
+            v->lp = gv_clamp(v->lp, -200000, 200000); v->bp = gv_clamp(v->bp, -200000, 200000);
+            s = t->ftype == GF_HP ? hp : t->ftype == GF_BP ? v->bp : v->lp;
+            if (drive) { s = s * (1 + drive / 16); s = s > 30000 ? 30000 + (s - 30000) / 8 : s < -30000 ? -30000 + (s + 30000) / 8 : s; }
+            s = (int32_t)(((int64_t)s * (v->amp >> 9)) >> 15);   /* amp Q24 -> Q15 */
+            if (t->cr) {                                 /* BITCRUSH: fewer bits, a held sample */
+                if (!v->crh--) { v->crh = crk - 1u; v->crs = (s >> crb) << crb; }
+                s = v->crs;
+            }
+            if (t->gt && (gv_acc_s + j) * 2u > sn) s = (s * gtv) >> 7;   /* GATE: the step's second half down */
+            if (rper && !--v->rlc) { v->rlc = rper; if (v->gate) { v->amp >>= 3; v->fenv = 32767; } }   /* ROLL: hit again */
+            s = (s * vol) >> 12;
+            ml[j] += s; mr[j] += s;
+            if (cho) sc[j] += (s * cho) >> 15;
+            if (dly) sd[j] += (s * dly) >> 15;
+            if (rev) sr[j] += (s * rev) >> 15;
+            if (!v->gate && v->amp < 64) { v->on = 0; v->amp = 0; v->fxs = 0; }
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ sequencer (audio ISR) --- */
+static void gv_start(void) { gv_pos = 0; gv_bar = 0; gv_cix = 0; gv_acc_s = 0; gv_stepn = 0; }
+static void gv_stop(void) { uint32_t i; for (i = 0; i < GV_NT; i++) gv_note_off(i); }
+static uint32_t gv_step_len(uint32_t pos)
+{
+    uint32_t bpm = (uint32_t)gv_clamp(song.g[G_BPM], 40, 240), base = GV_FS * 60u / (bpm * 4u);
+    uint32_t sw = (uint32_t)gv_clamp(song.g[G_SWING], 0, 100) * base / 400u;   /* swing: the odd steps late */
+    return pos & 1u ? base - sw : base + sw;
+}
+static uint8_t gv_lpa[14] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, gv_lpc[14];
+static uint32_t gv_loop(uint8_t *a, uint8_t *k, uint32_t lp, uint32_t c)   /* LOOP: the lp steps from where it began */
+{
+    if (!lp) { *a = 0xFF; return c; }
+    if (*a == 0xFF) { *a = (uint8_t)c; *k = 0; }
+    return (*a + (*k)++ % lp) & 15u;
+}
+static void gv_play_step(uint32_t pos)
+{
+    uint32_t i, sl = gv_step_len(pos);
+    int co = gv_choff();
+    if (pos == 0u) {
+        gv_bar++;
+        gv_cix = (uint8_t)((gv_bar - 1u) & 3u);
+        if (gv.autob && gv_bar > 1u && (gv_bar - 1u) % gv.autob == 0u) gv_regen_due |= 1u;
+        for (i = 0; i < GV_NT; i++) if (gv.t[i].ar && gv_bar > 1u && (gv_bar - 1u) % gv.t[i].ar == 0u) gv_regen_due |= 2u << i;
+        for (i = 0; i < 8u; i++) if (gv.rowar[i] && gv_bar > 1u && (gv_bar - 1u) % gv.rowar[i] == 0u) gv_regen_due |= 0x100u << i;
+        co = gv_choff();
+    }
+    for (i = 0; i < 8u; i++) if (trk[GV_ROWTRK[i]].step[pos & 15u].on) gv_hit_t[i] = song.tick;
+    for (i = 0; i < GV_NT; i++) {
+        const gv_trk_t *t = &gv.t[i];
+        uint32_t c;
+        const gv_step_t *s;
+        if (t->hf && (pos & 1u)) continue;            /* HALF: one step in two, the pattern over 2 bars */
+        c = t->hf ? ((pos >> 1) + ((gv_bar & 1u) ? 0u : 8u)) & 15u : pos;
+        if (t->bw || t->rv) c = 15u - c;
+        c = gv_loop(&gv_lpa[8u + i], &gv_lpc[8u + i], t->lp, c);
+        s = &t->st[c & 15u];
+        if (s->n >= 0 && t->sk && gv_rnd(127u) < t->sk) continue;
+        if (gv_live_trk == 8u + i) continue;           /* a key held: the live note wins */
+        if (s->n < 0) {
+            continue;
+        }
+        gv_note_on(i, s->n + co, (uint32_t)s->l4 * sl / 4u - (s->s ? 0u : sl / 16u), s->a, s->s, 1u + (uint32_t)s->o4 * sl / 4u);
+    }
+}
+/* FX LIVE on the drum rows: seq.c, a step coming up (idx, its index) -> the one to play; 0 = none */
+static int gv_drum_step(const track_t *t, uint16_t *idx, uint32_t cnt)
+{
+    uint32_t r, i = *idx;
+    for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
+    if (r == 8u) return 1;
+    if (gv.rhf[r]) { if (i & 1u) return 0; i = ((i >> 1) + (((cnt >> 4) & 1u) ? 8u : 0u)) & 15u; }
+    if (gv.rrv[r]) i = 15u - (i & 15u);
+    i = gv_loop(&gv_lpa[r], &gv_lpc[r], gv.rlp[r], i);
+    if (gv.rsk[r] && gv_rnd(127u) < gv.rsk[r]) return 0;
+    *idx = (uint16_t)i;
+    return 1;
+}
+static void gv_drum_roll(track_t *t)              /* after its hit: ROLL = 2..4 hits in the step */
+{
+    uint32_t r;
+    for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
+    if (r < 8u && gv.rrl[r] > 1u && t->rat_n) { t->rat_n = gv.rrl[r]; t->rat_k = 1; }
+}
+/* the block's advance (seq.c events_block: n samples of the drums' clock) */
+static void gv_tick(uint32_t n)
+{
+    if (!song.playing) { gv_acc_s = 0; gv_stepn = 0; return; }
+    while (n) {
+        uint32_t left;
+        if (!gv_stepn) { gv_stepn = gv_step_len(gv_pos); gv_play_step(gv_pos); }
+        left = gv_stepn - gv_acc_s;
+        if (n < left) { gv_acc_s += n; return; }
+        n -= left; gv_acc_s = 0; gv_stepn = 0;
+        gv_pos = (uint8_t)((gv_pos + 1u) & 15u);
+    }
+}
+/* the keys (seq.c keyboard_block, ISR) while Groove owns the panel: a black key plays the shown track; the white keys
+ * are the UI's (groove_ui.c reads their edges in the main loop) */
+static const uint8_t GV_BLACK[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
+static const uint8_t GV_WKEY[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};   /* = STEP_KEY (seq.c) */
+static uint32_t gv_kp_held;
+static void gv_rec_note(uint32_t i, int d)       /* REC: the note into the step playing (its degree, the chord taken off) */
+{
+    gv_step_t *s = &gv.t[i].st[gv_pos & 15u];
+    if (!gv_recq || !song.playing) return;
+    s->n = (int8_t)gv_clamp(d, 0, 2 * (int)gv_L()); s->l4 = 4; s->o4 = 0; s->a = 0; s->s = 0;
+}
+static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left = the scale going up */
+{
+    uint32_t i;
+    if (gv.sel < 8) {
+        uint32_t w;
+        for (w = 0; w < 16u && GV_WKEY[w] != key; w++) {}
+        if (!down) return;
+        if (w < 16u) { uint32_t r = w & 7u; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_hit_t[r] = song.tick;
+            if (gv_recq && song.playing) trk[GV_ROWTRK[r]].step[gv_pos & 15u].on = 1; }
+        return;
+    }
+    i = (uint32_t)gv.sel - 8u;
+    if (down) {
+        int d = (int)key + (int)gv.oct * (int)gv_L();
+        gv_kp_held |= 1u << key;
+        gv_live_trk = (uint8_t)(8u + i);
+        gv_note_on(i, d + gv_choff(), 0, 0, gv_kp_held & ~(1u << key) ? 1 : 0, 1u);
+        gv_rec_note(i, d);
+    } else {
+        gv_kp_held &= ~(1u << key);
+        if (!gv_kp_held) { gv_note_off(i); gv_live_trk = 0xFF; }
+    }
+}
+static void gv_keys_isr(uint32_t cur, uint32_t ch)
+{
+    uint32_t k, req = gv_hit_req;
+    gv_hit_req = 0;
+    for (k = 0; k < 8u; k++)
+        if ((req >> k) & 1u) { track_t *t = &trk[GV_ROWTRK[k]]; drum_hit(t, 110); gv_hit_t[k] = song.tick; }
+    if (gv_kp) {
+        for (k = 0; k < 27u; k++) if ((ch >> k) & 1u) gv_play_key(k, (int)((cur >> k) & 1u));
+        return;
+    }
+    for (k = 0; k < 11u; k++) {
+        uint32_t bit = 1u << GV_BLACK[k];
+        if (!(ch & bit)) continue;
+        if (gv.sel < 8) {
+            if ((cur & bit) && k < 8u) { drum_hit(&trk[GV_ROWTRK[k]], 110); gv_hit_t[k] = song.tick; gv.sel = (int8_t)k;
+                if (gv_recq && song.playing) trk[GV_ROWTRK[k]].step[gv_pos & 15u].on = 1; }
+        } else {
+            uint32_t i = (uint32_t)gv.sel - 8u;
+            if (cur & bit) {
+                int d = (int)k + (int)gv.oct * (int)gv_L();
+                gv_live_trk = (uint8_t)(8u + i);
+                gv_live_deg = (int16_t)d;
+                gv_note_on(i, d + gv_choff(), 0, 0, 0, 1u);
+                gv_rec_note(i, d);
+            } else if (gv_live_trk == 8u + i && !(cur & 0x2A52D2Au)) {   /* the last black key let go */
+                gv_note_off(i);
+                gv_live_trk = 0xFF;
+            }
+        }
+    }
+}

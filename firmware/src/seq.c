@@ -587,6 +587,10 @@ static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch = cur ^ kb_prev, i, key;
     kb_prev = cur;
+    if (gv_on) {                                     /* Groove owns the keys (groove.c gv_keys_isr) */
+        gv_keys_isr(cur, ch);
+        return;
+    }
     for (key = 0; key < 27u; key++) {                     /* PERFORM (perform.c): a key pressed with FX held is the layer's
                                                      * until let go: its effect, no note, no MIDI, nothing recorded */
         uint32_t bit = 1u << key;
@@ -758,6 +762,7 @@ static void seq_stop(void);
 static void seq_start(void)
 {
     uint32_t i;
+    gv_start();                                     /* Groove: its melodic tracks from step 1 (groove.c) */
     acid_gates_close();                             /* (PLAY while playing: nothing slides into step 0) */
     for (i = 0; i < NTRK; i++) {                    /* every track from its step 0, together */
         track_t *t = &trk[i];
@@ -789,6 +794,7 @@ static void seq_stop(void)
 {
     uint32_t i, j;
     song.playing = 0;
+    gv_stop();                                      /* Groove: its notes off */
     for (i = 0; i < NTRK; i++)                      /* SAMPLE's LOOPI voices end (nothing drones on after STOP) */
         for (j = 0; j < NDV; j++)
             if (trk[i].v[j].active && trk[i].model == DM_SMPL && (trk[i].v[j].k[2] & SE_INF))
@@ -909,6 +915,10 @@ static void seq_tick(track_t *t, uint32_t n)
         t->seq_cnt++;                               /* the step: steps since PLAY mod LEN, so a LEN change keeps
                                                      * the track on the shared clock (and LEN back = in sync) */
         t->seq_idx = (uint16_t)(t->seq_cnt % (len ? len : 1u));
+        if (!gv_drum_step(t, &t->seq_idx, t->seq_cnt)) {   /* Groove's FX LIVE: half tempo, reverse, loop, skips */
+            t->mic = 0;
+            continue;
+        }
         if ((t->mic & MIC_EARLY) && t->mic_idx == t->seq_idx) {
             mic_enter(t, cur_len);                  /* MICRO: its hit played early */
             continue;
@@ -925,6 +935,7 @@ static void seq_tick(track_t *t, uint32_t n)
             t->rat_n = 0;
         } else {
             step_fire(t, step_samples(t, div_period(div, t->seq_rem), t->seq_cnt));
+            gv_drum_roll(t);                        /* Groove's FX LIVE: ROLL */
         }
     }
 }
@@ -1048,6 +1059,7 @@ static void events_block(uint32_t n)
             chain_tick(seq_n);                       /* song.c: a row ends in this block -> the next one */
         for (i = 0; i < NTRK; i++)
             seq_tick(&trk[i], seq_n);
+        gv_tick(seq_n);                              /* Groove: the 6 melodic tracks on the same clock */
         grids_tick(seq_n);
         chain.cut = 0;
     }

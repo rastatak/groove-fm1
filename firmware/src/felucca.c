@@ -26,7 +26,8 @@
 #include "reson.c"          /* RESON: the per-track resonator insert */
 #include "filter.c"          /* FILTER: the per-track filter (fx.c mix_part) */
 #include "lfo.c"            /* LFOs (two per track) */
-#include "drum_core.c"       /* 8 drum tracks */
+#include "drum_core.c"
+#include "groove.c"           /* Groove: 6 melodic tracks and the web app's generators */       /* 8 drum tracks */
 #include "slicer.c"          /* per-track SLICER insert, used by fx.c */
 #include "fx.c"
 #ifndef FELUCCA_OTA
@@ -73,6 +74,7 @@
 #include "ui_draw.c"
 #include "ui_menu.c"
 #include "ui_input.c"
+#include "groove_ui.c"        /* Groove: the panel and the screen */
 #ifndef FELUCCA_FLASH
 #define FELUCCA_FLASH 1          /* flash driver + storage.c */
 #endif

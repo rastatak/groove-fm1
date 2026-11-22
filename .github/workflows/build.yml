@@ -1,0 +1,120 @@
+# Builds the Groove firmware (.fwsc) on every push, and on demand (Actions > Build firmware > Run workflow).
+# The file to install is in the run's "Artifacts": groove-firmware.zip (unzip it: felucca.fwsc inside).
+name: Build firmware
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python packages, clang as cc (the simulator builds with clang)
+        run: |
+          pip install Pillow
+          mkdir -p "$HOME/ccbin" && ln -sf "$(command -v clang)" "$HOME/ccbin/cc" && echo "$HOME/ccbin" >> "$GITHUB_PATH"
+
+      - name: Simulator tests (Groove + Hortator, on the PC)
+        run: |
+          bash tools/build_sim.sh --host-only
+          cc -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined \
+             -Ibuild/sim/gen -Ifirmware/src -Itests '-DFELUCCA_VERSION="DRUM-groove"' \
+             -o build/sim/host/sim_groove tests/sim_groove.c -lm
+          ./build/sim/host/sim_groove
+
+      - name: JieLi toolchain (cached)
+        id: tc
+        uses: actions/cache@v4
+        with:
+          path: ~/.jieli
+          key: jieli-toolchain-v1
+
+      - name: Download the JieLi toolchain
+        if: steps.tc.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3; do sh tools/get_toolchain.sh "$HOME/.jieli" && break; echo "retry $i"; sleep 20; done
+          test -x "$HOME/.jieli/toolchain/pi32v2/bin/clang"
+
+      - name: JieLi AC79 SDK, the 3 files the package needs (cached)
+        id: sdk
+        uses: actions/cache@v4
+        with:
+          path: ~/fw-AC79_AIoT_SDK
+          key: ac79-sdk-v1.2.1
+
+      - name: Download the AC79 SDK files
+        if: steps.sdk.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3; do
+            rm -rf "$HOME/fw-AC79_AIoT_SDK"
+            git clone --depth 1 --filter=blob:none --sparse --branch AC79NN_SDK_V1.2.1_2023-12-13 \
+              https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK" &&
+            git -C "$HOME/fw-AC79_AIoT_SDK" sparse-checkout set cpu/wl82/tools && break
+            echo "retry $i"; sleep 30
+          done
+          ls -la "$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools/uboot.boot" "$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools/cfg_tool.bin"
+
+      - name: Build the firmware
+        run: |
+          export JIELI_TOOLCHAIN="$HOME/.jieli/toolchain" AC79_SDK="$HOME/fw-AC79_AIoT_SDK"
+          python3 tools/build.py 2>&1 | tee build-log.txt
+          ls -la build/*.fwsc
+
+      - name: The firmware to download
+        uses: actions/upload-artifact@v4
+        with:
+          name: groove-firmware
+          path: |
+            build/*.fwsc
+            build-log.txt
+            INSTALLER_GROOVE.md
+
+      - name: The log, if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            build-log.txt
+            build/*.map
+
+  # The installer in the browser, with THIS firmware inside: https://<you>.github.io/<repo>/webapp/installer/
+  # (once: Settings > Pages > Source = GitHub Actions). If Pages is off, this job fails alone; the .fwsc above stays.
+  installer:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}webapp/installer/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/download-artifact@v4
+        with:
+          name: groove-firmware
+          path: fw
+      - name: Make the installer site
+        run: |
+          python3 web/make_site.py "$(ls fw/build/*.fwsc fw/*.fwsc 2>/dev/null | head -1)" "groove-0.1" _site
+          ls -R _site | head -40
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

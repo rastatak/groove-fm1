@@ -135,6 +135,7 @@ static void sim_mark(uint32_t off, uint32_t n)
 #include "../firmware/src/filter.c"
 #include "../firmware/src/lfo.c"
 #include "../firmware/src/drum_core.c"
+#include "../firmware/src/groove.c"           /* Groove: 6 melodic tracks and the web app's generators */
 #include "../firmware/src/slicer.c"
 #include "../firmware/src/fx.c"
 #include "../firmware/src/usb_app8.c"
@@ -149,6 +150,7 @@ static void sim_mark(uint32_t off, uint32_t n)
 #include "../firmware/src/ui_draw.c"
 #include "../firmware/src/ui_menu.c"
 #include "../firmware/src/ui_input.c"
+#include "../firmware/src/groove_ui.c"        /* Groove: the panel and the screen */
 
 /* the flash glue felucca.c gives storage.c and persist_boot (as tests/flash_host.h, plus the dirty sectors) */
 static uint8_t flash_ok;

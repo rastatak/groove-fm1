@@ -1,3 +1,12 @@
+# Groove (fork d'Hortator) — FM-1 Groove Studio sur le M-VAVE FM-1
+
+8 pistes de batterie + 6 pistes mélodiques, les générateurs de rythmes et de mélodies de FM-1 Groove Studio,
+FX LIVE à 16 effets, mode JEU. **Compiler et installer : [INSTALLER_GROOVE.md](INSTALLER_GROOVE.md).**
+Groove ajoute `firmware/src/groove.c`, `groove_ui.c`, `gv_data.h` et quelques points d'accroche dans `seq.c`,
+`fx.c`, `ui_input.c`, `ui_draw.c` ; tout le reste est Hortator, dont la documentation suit.
+
+---
+
 # Hortator
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)

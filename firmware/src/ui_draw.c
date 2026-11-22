@@ -3002,6 +3002,8 @@ static void draw_columns(void)
  * with upstream (the boot sequence up to the fm1_main call) */
 __attribute__((always_inline)) static inline void ui_draw(void)
 {
+    if (gv_ui_draw())                                   /* Groove draws the whole screen (groove_ui.c) */
+        return;
     if (safe_start) {                                 /* safe start: one static screen, drawn again after */
         static uint8_t drawn;                         /* an update session cleared it (main.c sets ui.force) */
         if (!drawn || ui.force) {

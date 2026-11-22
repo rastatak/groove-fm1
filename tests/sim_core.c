@@ -40,8 +40,10 @@ void sim_flash_reset(void)
     memset(sim_dirty, 0, sizeof sim_dirty);
 }
 
+int sim_groove = 0;                                      /* 1 = the Groove UI owns the panel, as on the device (Hortator's own tests: 0) */
 void sim_init(int fresh)                                 /* main.c's boot order */
 {
+    gv_on = (uint8_t)sim_groove;
     if (fresh)
         sim_flash_reset();
     persist_boot();
