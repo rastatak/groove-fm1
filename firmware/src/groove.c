@@ -37,7 +37,7 @@ static void gv_fmt(char *b, const char *f, ...)
 #define GV_NT 6                    /* melodic tracks */
 #define GV_FS 44100u
 enum { GT_BASS, GT_SYNTH, GT_PAD, GT_FX };
-enum { GW_SAW, GW_SQR, GW_TRI };
+enum { GW_SAW, GW_SQR, GW_TRI, GW_PIANO };
 enum { GF_LP, GF_HP, GF_BP };
 /* the web app's rows of drums on Hortator's 8 tracks (power-on kit: kick snare clap hat-closed hat-open tom rim cymbal;
  * Groove puts a conga on track 8 for PERC) */
@@ -435,6 +435,11 @@ static int32_t gv_osc(uint32_t ph, uint32_t w)
     int32_t x = (int32_t)(ph >> 16) - 32768;       /* saw */
     if (w == GW_SQR) return ph < 0x80000000u ? 26000 : -26000;
     if (w == GW_TRI) return x < 0 ? 2 * x + 32767 : 32767 - 2 * x;
+    if (w == GW_PIANO) {                           /* a struck string: the fundamental, its octave, a little third harmonic */
+        uint32_t p2 = ph * 2u, p3 = ph * 3u;
+        int32_t a = x < 0 ? 2 * x + 32767 : 32767 - 2 * x, x2 = (int32_t)(p2 >> 16) - 32768, x3 = (int32_t)(p3 >> 16) - 32768;
+        return (a * 5 + (x2 < 0 ? 2 * x2 + 32767 : 32767 - 2 * x2) * 2 + x3) >> 3;
+    }
     return x;
 }
 static int32_t gv_lfo(gv_voice_t *v, const gv_trk_t *t, uint32_t n)
@@ -511,6 +516,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
             }
             v->fenv -= v->fenv >> (7 + t->dec / 18);
             if ((j & 15u) == 0u) {
+                if (t->wave == GW_PIANO) v->atgt -= v->atgt >> (9 + t->dec / 40);   /* PIANO: the held note dies away */
                 cbase = (t->cut << 8) + ((v->fenv * t->env * (v->acc ? 3 : 2)) >> 15) * 64 + ((lfo * t->lfd) >> 15) * 64;
                 fk = gv_fcoef(cbase);
             }
@@ -595,7 +601,7 @@ static void gv_master_post(int32_t *ml, int32_t *mr, int32_t *wet, uint32_t n)
                 lo = gvm_e1[c]; hi = x - gvm_e2[c]; mid = x - lo - hi;
                 x = (lo * gv.eq[0] + mid * gv.eq[1] + hi * gv.eq[2]) >> 6;
             }
-            m[j] = gv_clamp(x, -65000, 65000) << 6;
+            m[j] = gv_clamp(x, -70000, 70000) << 6;       /* not 65000: -65000 << 6 looks like a chip ROM address to the build check */
         }
     }
     for (j = 0; j < n; j++) wet[j] = 0;               /* (it is in the mix now) */

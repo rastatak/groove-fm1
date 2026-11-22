@@ -41,6 +41,7 @@ static struct {
     uint32_t fxa;
     int16_t byp[8][16];             /* FX LIVE: the value an effect had before its key cut it (-1 = not cut) */
     uint8_t mrow;                   /* GLO MIDI: the list's cursor */
+    uint8_t gcur;                   /* GLO: the option under the cursor (PRESETS up/down, ALGORITHM left/right) */
     uint8_t ppage, pbtn, snp, sns;  /* the page before this button's (OCT+ = back); EDIT SON's snapshot: its page / track */
     uint8_t grp;                    /* SELECT past the 14 tracks (LIVE, MIX): 1 everything, 2 all the rhythm, 3 all the melody */
     uint8_t lock;                   /* FX pads: VERROU (a pad stays on when let go) */
@@ -237,7 +238,8 @@ static void gv_krange(uint32_t id, int32_t *mn, int32_t *mx)
     case KN_PROG: *mx = GV_NPROG[gv.scale % GV_NSC]; break;
     case KN_ROOT: *mx = 11; break;
     case KN_SCALE: *mx = GV_NSC - 1; break;
-    case KN_FTYPE: case KN_WAVE: *mx = 2; break;
+    case KN_FTYPE: *mx = 2; break;
+    case KN_WAVE: *mx = 3; break;
     case KN_LFW: case KN_SACC: case KN_SOFF: *mx = 3; break;
     case KN_OCT: *mn = 1; *mx = 6; break;
     case KN_SNOTE: *mx = 2 * (int32_t)gv_L(); break;
@@ -355,7 +357,7 @@ static void gv_kset(uint32_t id, int32_t v)
 }
 static void gv_kfmt(uint32_t id, int32_t v, char *b)
 {
-    static const char *const FT[3] = {"PASSE-BAS", "PASSE-HAUT", "BANDE"}, *const WV[3] = {"SCIE", "CARRE", "TRI"},
+    static const char *const FT[3] = {"PASSE-BAS", "PASSE-HAUT", "BANDE"}, *const WV[4] = {"SCIE", "CARRE", "TRI", "PIANO"},
                       *const LW[4] = {"SINUS", "TRIANGLE", "CARRE", "SCIE"};
     switch (id) {
     case KN_TAR: case KN_RAR: case KN_AUTO: if (v) { gv_fmt(b, "%d MES", (int)GV_AUS[v]); } else gv_fmt(b, "OFF"); return;
@@ -366,7 +368,7 @@ static void gv_kfmt(uint32_t id, int32_t v, char *b)
     case KN_ROOT: gv_fmt(b, "%s", GV_NOTE[v % 12]); return;
     case KN_SCALE: gv_fmt(b, "%s", GV_SCN[v % GV_NSC]); return;
     case KN_FTYPE: gv_fmt(b, "%s", FT[v % 3]); return;
-    case KN_WAVE: gv_fmt(b, "%s", WV[v % 3]); return;
+    case KN_WAVE: gv_fmt(b, "%s", WV[v & 3]); return;
     case KN_LFW: gv_fmt(b, "%s", LW[v % 4]); return;
     case KN_LFS: gv_fmt(b, v ? "TEMPO" : "LIBRE"); return;
     case KN_SNOTE: gv_fmt(b, "%s", gv_stp()->n < 0 ? "-" : gv_degname((int)v)); return;
@@ -660,8 +662,15 @@ static const gv_snd_t GV_SND[] = {
     {"PAD SOMBRE", 1u << GT_PAD, GW_TRI, 3, 40, 60, 20, 100, 120, 40, 10, 0},
     {"AIR", (1u << GT_PAD) | (1u << GT_FX), GW_SQR, 5, 100, 80, 10, 110, 127, 60, 20, 0},
     {"LASER", 1u << GT_FX, GW_SQR, 5, 90, 110, 127, 0, 20, 0, 38, 40},
-    {"SIRENE", 1u << GT_FX, GW_SAW, 4, 70, 70, 20, 30, 80, 127, 50, 0}};
+    {"SIRENE", 1u << GT_FX, GW_SAW, 4, 70, 70, 20, 30, 80, 127, 50, 0},
+    {"PIANO", (1u << GT_SYNTH) | (1u << GT_PAD) | (1u << GT_FX), GW_PIANO, 4, 62, 5, 55, 0, 70, 0, 38, 0},
+    {"PIANO GRAVE", 1u << GT_BASS, GW_PIANO, 3, 55, 5, 50, 0, 80, 0, 38, 0}};
 #define GV_NSND (sizeof GV_SND / sizeof GV_SND[0])
+#define GV_NUSR 8u                                    /* MES SONS: the melodic sounds kept by hand (RAM: until power-off) */
+static gv_snd_t gv_usr[GV_NUSR];                      /* (ty 0: free) */
+static uint8_t gv_usrn;                               /* where the next one goes once all are taken */
+static const gv_snd_t *gv_snd_get(uint32_t id) { return id < GV_NSND ? &GV_SND[id] : &gv_usr[(id - GV_NSND) % GV_NUSR]; }
+static int preset_user_save(uint32_t slot, const track_t *t);
 static uint8_t gv_sndcur[GV_NT];
 static uint32_t gv_snd_ids(uint16_t *ids, uint32_t *cur)   /* the shown track's sounds (<= 64), which one it has (0xFFFF none) */
 {
@@ -669,16 +678,21 @@ static uint32_t gv_snd_ids(uint16_t *ids, uint32_t *cur)   /* the shown track's 
     *cur = 0xFFFFu;
     if (gv_isd()) {
         uint32_t r = (uint32_t)gv.sel & 7u, pre = preset_of(&trk[GV_ROWTRK[r]]);
-        for (k = 0; k < PRE_NFACT && n < 64u; k++) if (gv_infam(r, PRE_FACTORY[k].model)) { if (k == pre) *cur = n; ids[n++] = (uint16_t)k; }
+        for (k = 0; k < PRE_NFACT && n < 56u; k++) if (gv_infam(r, PRE_FACTORY[k].model)) { if (k == pre) *cur = n; ids[n++] = (uint16_t)k; }
+        for (k = 0; k < PRE_NUSER && n < 64u; k++)    /* then the ones kept by hand (Hortator's user bank: in flash) */
+            if (upr_used(k) && gv_infam(r, upr.s[k].model)) { if (PRE_NFACT + k == pre) *cur = n; ids[n++] = (uint16_t)(PRE_NFACT + k); }
     } else {
         uint32_t i = (uint32_t)gv.sel - 8u, ty = GV_TTYPE[i];
         for (k = 0; k < GV_NSND; k++) if ((GV_SND[k].ty >> ty) & 1u) { if (k == gv_sndcur[i]) *cur = n; ids[n++] = (uint16_t)k; }
+        for (k = 0; k < GV_NUSR; k++) if (gv_usr[k].ty) { if (GV_NSND + k == gv_sndcur[i]) *cur = n; ids[n++] = (uint16_t)(GV_NSND + k); }
     }
     return n;
 }
 static void gv_snd_name(uint32_t id, char *out)
 {
-    if (gv_isd()) preset_name_of(id, out); else gv_fmt(out, "%s", GV_SND[id % GV_NSND].n);
+    if (gv_isd()) preset_name_of(id, out);
+    else if (id >= GV_NSND) gv_fmt(out, "MON SON %d", (int)(id - GV_NSND) + 1);
+    else gv_fmt(out, "%s", GV_SND[id].n);
 }
 static void gv_preset_turn(int32_t s)                  /* PRESETS (LIVE) / SELECT (EDIT SON): the next / previous sound of the family */
 {
@@ -694,13 +708,38 @@ static void gv_preset_turn(int32_t s)                  /* PRESETS (LIVE) / SELEC
     } else {
         uint32_t i = (uint32_t)gv.sel - 8u;
         gv_trk_t *t = &gv.t[i];
-        const gv_snd_t *d = &GV_SND[ids[k]];
+        const gv_snd_t *d = gv_snd_get(ids[k]);
         gv_sndcur[i] = (uint8_t)ids[k];
         t->wave = d->wave; t->oct = d->oct; t->cut = d->cut; t->res = d->res; t->env = d->env; t->att = d->att; t->dec = d->dec;
         t->lfd = d->lfd; t->lfr = d->lfr; t->dist = d->dist;
     }
     gv_snd_name(ids[k], nm);
     gv_fmt(m, "%s %d/%d : %s", gv_name(gv.sel), (int)k + 1, (int)n, nm);
+    gv_say(m);
+}
+
+/* SAVE on the SON pages: the sound as it is now, kept (a drum row: Hortator's user bank, in flash; a melodic track: MES SONS) */
+static void gv_snd_keep(void)
+{
+    char m[32];
+    if (gv_isd()) {
+        track_t *tr = gv_rt();
+        int sl = tr->pre >= PRE_NFACT && tr->pre < PRE_NID ? (int)(tr->pre - PRE_NFACT) : preset_user_free();
+        if (sl < 0 || preset_user_save((uint32_t)sl, tr)) { gv_say("PLUS DE PLACE"); return; }
+        tr->pre = (uint16_t)(PRE_NFACT + (uint32_t)sl);
+        gv_fmt(m, "ENREGISTRE : %s", gv_name(gv.sel));
+    } else {
+        uint32_t i = (uint32_t)gv.sel - 8u, k;
+        const gv_trk_t *t = &gv.t[i];
+        gv_snd_t *d;
+        if (gv_sndcur[i] >= GV_NSND) k = gv_sndcur[i] - GV_NSND;     /* one of MES SONS, changed: over itself */
+        else { for (k = 0; k < GV_NUSR && gv_usr[k].ty; k++) { } if (k >= GV_NUSR) { k = gv_usrn; gv_usrn = (uint8_t)((gv_usrn + 1u) % GV_NUSR); } }
+        d = &gv_usr[k % GV_NUSR];
+        d->n = 0; d->ty = 0xFF; d->wave = t->wave; d->oct = t->oct; d->cut = t->cut; d->res = t->res; d->env = t->env; d->att = t->att;
+        d->dec = t->dec; d->lfd = t->lfd; d->lfr = t->lfr; d->dist = t->dist;
+        gv_sndcur[i] = (uint8_t)(GV_NSND + k);
+        gv_fmt(m, "ENREGISTRE : MON SON %d", (int)k + 1);
+    }
     gv_say(m);
 }
 
@@ -739,6 +778,37 @@ static void gv_midi_row(uint32_t r, int32_t dv, char *lab, char *val)
         if ((r - 3u) & 1u) { if (dv) t->mch = (uint8_t)gv_clamp(t->mch + dv, 1, 16); gv_fmt(lab, "%s CANAL", GV_TRN[((r - 3u) / 2u) % GV_NT]); gv_fmt(val, "CH %d", (int)t->mch); }
         else { if (dv) t->mo = (uint8_t)gv_clamp(t->mo + dv, 0, 2); gv_fmt(lab, "%s SORTIE", GV_TRN[((r - 3u) / 2u) % GV_NT]); gv_fmt(val, "%s", O[t->mo % 3u]); }
     }
+}
+
+/* ------------------------------------------------------------- GLO: 8 options, 2 across (PRESETS up/down, ALGORITHM left/right) --- */
+static const char *const GV_GOPT[8] = {"BPM", "SWING", "STYLE", "AUTO RYTHME", "ALGORITHM", "TAP TEMPO", "MIDI", "HORTATOR"};
+static const char *const GV_GAL[6] = {"PAGES", "BPM", "FILTRE DJ", "VOLUME", "RYTHMES", "SWING"};
+static void gv_tap(void);
+static void gv_glo_val(uint32_t o, char *v)
+{
+    if (o == 0u) gv_fmt(v, "%d", (int)song.g[G_BPM]);
+    else if (o == 1u) gv_fmt(v, "%d%%", (int)song.g[G_SWING]);
+    else if (o == 2u) gv_fmt(v, "%s", GV_STN[gv.style]);
+    else if (o == 3u) gv_kfmt(KN_AUTO, gv_kget(KN_AUTO), v);
+    else if (o == 4u) gv_fmt(v, "%s", GV_GAL[gv.algo % 6u]);
+    else gv_fmt(v, "OCT-");
+}
+static void gv_glo_turn(int32_t s)                    /* SELECT: the value of the option under the cursor */
+{
+    static const uint8_t K[4] = {KN_BPM, KN_SWING, KN_STYLE, KN_AUTO};
+    uint32_t o = gu.gcur & 7u;
+    if (o < 4u) { int32_t mn, mx; gv_krange(K[o], &mn, &mx); gv_kset(K[o], gv_clamp(gv_kget(K[o]) + s, mn, mx)); gv_am_touch(K[o]); }
+    else if (o == 4u) gv.algo = (uint8_t)gv_clamp((int32_t)gv.algo + (s > 0 ? 1 : -1), 0, 5);
+    else gv_say("OCT- = VALIDER");
+}
+static void gv_glo_ok(void)                           /* OCT-: do what the option says */
+{
+    uint32_t o = gu.gcur & 7u;
+    if (o == 3u) { int32_t mn, mx; gv_krange(KN_AUTO, &mn, &mx); gv_kset(KN_AUTO, gv_kget(KN_AUTO) > mn ? mn : mx); gv_say("AUTO RYTHME"); }
+    else if (o == 5u) gv_tap();
+    else if (o == 6u) { gu.page = GP_MIDI; gu.btn = B_GLO; }
+    else if (o == 7u) { gv_on = 0; ui.force = 1; }
+    else gv_say("SELECT = CHANGER LA VALEUR");
 }
 
 /* ------------------------------------------------------------- pages: the white keys --- */
@@ -838,7 +908,7 @@ static void gv_select(int32_t s)
     case GP_STY: gu.sty = (uint8_t)((gu.sty + GV_NSTY * 4 + s) % GV_NSTY); break;
     case GP_VIS: gu.sty = (uint8_t)((gu.sty + GV_NSTY * 4 + s) % GV_NSTY); gv_say(gu.sty == gv.style ? GV_STN[gu.sty] : "ARP MAINTENU = VALIDER"); break;
     case GP_SCL: gv_set_scale((uint32_t)((gv.scale + GV_NSC * 4 + s) % GV_NSC)); break;
-    case GP_GLO: song.g[G_BPM] = (int16_t)gv_clamp(song.g[G_BPM] + s, 40, 240); break;
+    case GP_GLO: gv_glo_turn(s); break;
     case GP_LMEL: case GP_GMEL: case GP_ENV: case GP_FLT: case GP_LFO: case GP_OSC:
         gv.sel = (int8_t)(8 + (((gv.sel - 8) + s) % 6 + 6) % 6); break;
     case GP_LRYT: case GP_GRYT:
@@ -939,6 +1009,8 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
                     gu.page = gu.ppage; gu.btn = gu.pbtn; gv_say("RETOUR");
                 }
             }
+            else if (b == B_OCTDN && gu.page == GP_GLO) gv_glo_ok();
+            else if (b == B_SAVE && (gu.page == GP_SON || gu.page == GP_SONR || gu.page == GP_SEDIT)) gv_snd_keep();   /* SAVE: keep this sound */
             else if (b == B_OCTDN) { if (gv.oct > 0) gv.oct--; }
             else if (b == B_OCTUP) { if (gv.oct < 3) gv.oct++; }
             else gv_go(b);
@@ -973,7 +1045,8 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
         }
     if ((s = panel_enc(EN_SELECT)) != 0) { gv_select(s); gu.dirty = 1; }
     if ((s = panel_enc(EN_PRESET)) != 0) {
-        if (gu.page == GP_MIDI) { char l[32], v[20]; gv_midi_row(gu.mrow, s > 0 ? 1 : -1, l, v); }
+        if (gu.page == GP_MIDI) gu.mrow = (uint8_t)gv_clamp((int32_t)gu.mrow + (s > 0 ? 1 : -1), 0, (int32_t)GV_MROWS - 1);   /* up / down */
+        else if (gu.page == GP_GLO) gu.gcur = (uint8_t)(gv_clamp((int32_t)(gu.gcur >> 1) + (s > 0 ? 1 : -1), 0, 3) * 2 + (gu.gcur & 1u));
         else if (gv_live_page() || gu.page == GP_SON) gv_preset_turn(s > 0 ? 1 : -1);
         else if (gu.page == GP_RYT || gu.page == GP_LRYT || gu.page == GP_GRYT) gv.sel = (int8_t)(((gv.sel & 7) + s + 8) % 8);
         else if (gu.page == GP_MEL || gu.page == GP_LMEL || gu.page == GP_GMEL) gv.sel = (int8_t)(8 + ((gv.sel - 8 + s) % 6 + 6) % 6);
@@ -987,7 +1060,9 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
             gu.fxd = (int8_t)(gu.fxpg >= o ? 1 : -1); gu.fxa = fm1_ms;
             { static const char *const PT[4] = {"A : FILTRE RESO DISTO ECHO", "B : REVERB WOBBLE VITESSE VOL", "C : CHORUS ROLL SAUTS REVERSE",
                                                 "D : LOOP CRUSH GATE DEMI"}; gv_say(PT[gu.fxpg]); }
-        } else if (gv_live_page()) { gu.kp = s > 0; gv_say(gu.kp ? "MODE JEU : LE CLAVIER JOUE" : "MODE COUPURES"); }
+        } else if (gu.page == GP_MIDI) { char l[32], v[20]; gv_midi_row(gu.mrow, s > 0 ? 1 : -1, l, v); }   /* left / right: the value */
+        else if (gu.page == GP_GLO) { gu.gcur = (uint8_t)((gu.gcur & 6u) | (s > 0 ? 1u : 0u)); }
+        else if (gv_live_page()) { gu.kp = s > 0; gv_say(gu.kp ? "MODE JEU : LE CLAVIER JOUE" : "MODE COUPURES"); }
         else if (gv.algo == 0u) {                     /* ALGORITHM: every page in turn (GLO: or a setting) */
             uint32_t k, n = GP_N;
             gu.page = (uint8_t)((gu.page + n + (uint32_t)(s > 0 ? 1 : n - 1)) % n);
@@ -1612,7 +1687,7 @@ static void gv_draw_body(void)
         G_TC((x2 + x3) / 2, Y + H - 12, 1, "S", GC_M); G_TC((x3 + X + W) / 2, Y + H - 12, 1, "R", GC_M);
         G_T(X + 4, Y + H + 10, 1, "GLIDE", GC_M);
         { int32_t gl = t->gl * 80 / 127, i, py = 0; for (i = 0; i <= 90; i++) { int32_t yy = Y + H + 14 - (i < gl ? i * 8 / (gl + 1) : 8); if (i) G_L(X + 40 + i - 1, py, X + 40 + i, yy, GC_Y); py = yy; } }
-        { static const char *const WV[3] = {"SCIE", "CARRE", "TRI"}; G_TR(X + W - 4, Y + H + 10, 1, WV[t->wave % 3u], cc); }
+        { static const char *const WV[4] = {"SCIE", "CARRE", "TRI", "PIANO"}; G_TR(X + W - 4, Y + H + 10, 1, WV[t->wave & 3u], cc); }
         break; }
     case GP_FLT: {                                     /* the filter's curve, the cutoff (yellow), the sound going through */
         uint16_t cc = gv_col(gv.sel);
@@ -1669,7 +1744,7 @@ static void gv_draw_body(void)
                 py = yy;
             }
         } else G_TC(120, Y + H / 2 - 4, 1, "JOUE UNE NOTE OU PLAY", GC_M);
-        { static const char *const WV[3] = {"SCIE", "CARRE", "TRI"}; gv_fmt(b, "%s  OCT %d  PITCH %+d", WV[t->wave % 3u], (int)t->oct, (int)t->po); G_TC(120, Y + H + 6, 1, b, cc); }
+        { static const char *const WV[4] = {"SCIE", "CARRE", "TRI", "PIANO"}; gv_fmt(b, "%s  OCT %d  PITCH %+d", WV[t->wave & 3u], (int)t->oct, (int)t->po); G_TC(120, Y + H + 6, 1, b, cc); }
         break; }
     case GP_SON: {                                     /* the track's sounds: SELECT moves and loads, every key plays it */
         uint16_t ids[64];
@@ -1686,10 +1761,11 @@ static void gv_draw_body(void)
             if (on) { G_R(3, y, 234, 16, RGB(0x2c, 0x24, 0x1a)); G_F(3, y, 234, 16, GC_A); }
             G_R(5, y + 2, 3, 12, gv_col(gv.sel));
             G_T(14, y + 5, 1, nm, on ? GC_T : GC_M);
-            if (gv_isd()) G_T(110, y + 5, 1, DMODELS[PRE_FACTORY[ids[j]].model % NMODELS].name, GC_L);
+            if (gv_isd()) G_T(110, y + 5, 1, DMODELS[(ids[j] < PRE_NFACT ? PRE_FACTORY[ids[j]].model : upr.s[(ids[j] - PRE_NFACT) % PRE_NUSER].model) % NMODELS].name, GC_L);
+            else if (ids[j] >= GV_NSND) G_T(110, y + 5, 1, "MES SONS", GC_L);
             if (on) G_TR(230, y + 5, 1, "EN COURS", GC_Y);
         }
-        G_TC(120, 176, 1, "SELECT ECOUTER  CLAVIER JOUER  OCT- VALIDER  OCT+ RETOUR", GC_C);
+        G_TC(120, 176, 1, "SELECT ECOUTER  OCT- VALIDER  OCT+ RETOUR  SAVE GARDER", GC_C);
         break; }
     case GP_FXD: case GP_SONR: case GP_SEDIT: {
         uint8_t kn[4];
@@ -1732,17 +1808,19 @@ static void gv_draw_body(void)
             else G_TC(120, 168, 1, "ACCORDS OFF  SELECT = CHANGER DE GAMME", GC_M);
         }
         break; }
-    case GP_GLO: {
-        static const char *const AL[6] = {"PAGES", "BPM", "FILTRE DJ", "VOLUME", "RYTHMES", "SWING"};
+    case GP_GLO: {                                     /* the tempo, then 8 options: PRESETS up/down, ALGORITHM left/right, SELECT the value */
         gv_fmt(b, "%d", (int)song.g[G_BPM]);
-        G_TC(120, 46, 8, b, GC_Y);
-        gv_fmt(b, "BPM  SWING %d%%", (int)song.g[G_SWING]);
-        G_TC(120, 104, 1, b, GC_M);
-        gv_fmt(b, "%s  AUTO RYTHME %s", GV_STN[gv.style], gv.autob ? "ON" : "OFF");
-        G_TC(120, 122, 2, b, GC_T);
-        gv_fmt(b, "ALGORITHM : %s", AL[gv.algo % 6u]);
-        G_TC(120, 146, 1, b, GC_A);
-        G_TC(120, 162, 1, "TOUCHE 1 = TAP TEMPO  3-8 = ALGORITHM  16 = HORTATOR", GC_M);
+        G_TC(120, 38, 8, b, GC_Y);
+        for (i = 0; i < 8u; i++) {
+            char v[20];
+            int32_t x = 4 + (int32_t)(i & 1u) * 117, y = 92 + (int32_t)(i >> 1) * 20, on = i == (gu.gcur & 7u);
+            gv_glo_val(i, v);
+            G_R(x, y, 115, 18, on ? GC_P2 : GC_P);
+            if (on) G_F(x, y, 115, 18, GC_A);
+            G_T(x + 4, y + 6, 1, GV_GOPT[i], on ? GC_T : GC_M);
+            G_TR(x + 111, y + 6, 1, v, i >= 5u ? (on ? GC_A : GC_L) : on ? GC_Y : GC_T);
+        }
+        G_TC(120, 175, 1, "PRESETS HAUT/BAS  ALGO GAUCHE/DROITE  SELECT VALEUR", GC_M);
         break; }
     case GP_FXR: {                                     /* the list of the effects at work, each its bar (16 keys = cut it) */
         static const uint8_t AMT_K[16] = {0};
@@ -1891,7 +1969,7 @@ static void gv_draw_body(void)
             G_TR(220, y + 5, 2, v, on ? GC_Y : GC_T);
         }
         G_R(230, 48, 4, 122, GC_P); G_R(230, 48 + (int32_t)gu.mrow * 110 / (int32_t)(GV_MROWS - 1u), 4, 12, GC_A);   /* where in the list */
-        G_TC(120, 176, 1, "SELECT : LIGNE   PRESETS : VALEUR", GC_M);
+        G_TC(120, 176, 1, "PRESETS : HAUT / BAS   ALGORITHM : VALEUR", GC_M);
         break; }
     case GP_SAVE: {                                    /* the bank: 8 rhythms, 8 melodies (RAM: until power-off) */
         static const char *const MD[3] = {"TOUCHE : CHARGER (VIDE : ENREGISTRER)", "TOUCHE : ENREGISTRER", "TOUCHE : EFFACER"};

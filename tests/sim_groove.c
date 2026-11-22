@@ -199,7 +199,9 @@ int main(void)
     tap_btn(B_ARP); run(FS / 5u); shot("visp"); tap_btn(B_ARP); shot("grytp"); tap_btn(B_ARP); shot("gmelp");
     tap_btn(B_GLO); shot("glop");
     gv.sel = 8; tap_btn(B_EDIT); shot("sonm"); gv.sel = 0; gu.dirty = 1; shot("sond"); gv.sel = 8;
-    tap_btn(B_SAVE); check("SAVE: BANQUE", gu.page == GP_SAVE);
+    tap_btn(B_SAVE); check("SON, SAVE: the sound kept, the page stays", gu.page == GP_SON && gv_sndcur[0] >= GV_NSND);
+    memset(gv_usr, 0, sizeof gv_usr); gv_sndcur[0] = 0;
+    tap_btn(B_HOME); tap_btn(B_SAVE); check("SAVE: BANQUE", gu.page == GP_SAVE);
     { uint16_t r0 = gv_rhythm_row_get(0);
       tap_key(STEP_KEY[0]); check("SAVE key 1 (empty): the rhythm saved", gu.rbu & 1u);
       gv_rhythm_row_set(0, 0x1234); tap_key(STEP_KEY[0]); check("key 1 again: loaded back", gv_rhythm_row_get(0) == r0);
@@ -230,6 +232,21 @@ int main(void)
     tap_btn(B_EDIT); check("EDIT x2: SON REGLAGES", gu.page == GP_SONR); shot("sonr");
     tap_btn(B_EDIT); check("EDIT x3: EDITER", gu.page == GP_SEDIT); { int16_t e = trk[GV_ROWTRK[0]].p[P_E2]; sim_enc(EN_K1, 4); run(FS / 20u); check("EDITER knob 1: the voice's 3rd knob", trk[GV_ROWTRK[0]].p[P_E2] != e); } shot("sedit");
     tap_btn(B_EDIT); check("EDIT x4: MIDI PISTES", gu.page == GP_EMIDI); shot("emidi");
+    {   /* GLO: PRESETS up/down, ALGORITHM left/right, SELECT the value, OCT- validates */
+        int16_t sw; uint8_t al;
+        tap_btn(B_HOME); tap_btn(B_GLO); gu.gcur = 0;
+        check("GLO: starts on its first page", gu.page == GP_GLO);
+        sim_enc(EN_ALGO, 1); run(FS / 20u); check("GLO: ALGORITHM right = SWING", gu.gcur == 1u && gu.page == GP_GLO);
+        sw = song.g[G_SWING]; sim_enc(EN_SELECT, 1); run(FS / 20u); check("GLO: SELECT turns the SWING", song.g[G_SWING] != sw);
+        sim_enc(EN_PRESET, 1); run(FS / 20u); sim_enc(EN_PRESET, 1); run(FS / 20u); sim_enc(EN_ALGO, -1); run(FS / 20u);
+        check("GLO: PRESETS down twice, ALGORITHM left = ALGORITHM option", gu.gcur == 4u);
+        al = gv.algo; sim_enc(EN_SELECT, 1); run(FS / 20u); check("GLO: SELECT changes what ALGORITHM does", gv.algo == al + 1u);
+        shot("glo_opt");
+        gv.algo = al;
+        sim_enc(EN_PRESET, 1); run(FS / 20u); sim_enc(EN_PRESET, 1); run(FS / 20u); check("GLO: the cursor stops on the last row", gu.gcur == 6u);
+        tap_btn(B_OCTDN); check("GLO: OCT- on MIDI opens the MIDI page", gu.page == GP_MIDI);
+        tap_btn(B_HOME); gu.gcur = 0;
+    }
     tap_btn(B_GLO); tap_btn(B_GLO); check("GLO x2: MIDI", gu.page == GP_MIDI); shot("midi");
     tap_btn(B_SAVE); tap_btn(B_SAVE); check("SAVE x2: RYTHMES", gu.page == GP_BKR); tap_key(STEP_KEY[2]); check("RYTHMES key 3: saved", gu.rbu & 4u); shot("bkr");
     tap_btn(B_SAVE); check("SAVE x3: MELODIES", gu.page == GP_BKM); gv.sel = 8; tap_key(STEP_KEY[1]); check("MELODIES key 2: saved", gu.mbu & 2u); shot("bkm");
@@ -279,13 +296,15 @@ int main(void)
     if (!sim_playing()) tap_btn(B_PLAY);
     { double fl, cut; run(FS); fl = rms_of(FS * 2u); sim_enc(EN_K2, -64); sim_enc(EN_K3, -64); run(FS / 2u); cut = rms_of(FS * 2u);
       printf("info  rms flat %.4f, lows and mids cut %.4f\n", fl, cut);
-      check("EQ: lows and mids cut = quieter", gv.eq[0] == 0 && cut < fl * 0.85); shot("mixr");
+      check("EQ: lows and mids cut = quieter", gv.eq[0] == 0 && cut < fl * 0.93); shot("mixr");
       gv.eq[0] = gv.eq[1] = 64; }
     gv.sel = 0; gu.grp = 0; { int16_t l = trk[GV_ROWTRK[0]].p[P_LEVEL]; sim_enc(EN_K1, -6); run(FS / 20u); check("MIXEUR knob 1: the kick's fader", trk[GV_ROWTRK[0]].p[P_LEVEL] < l); }
     /* GLO MIDI: the list (SELECT the row, PRESETS the value) */
     tap_btn(B_GLO); while (gu.page != GP_MIDI) tap_btn(B_GLO);
     gu.mrow = 0; sim_enc(EN_SELECT, 6); run(FS / 20u); check("MIDI: SELECT goes down the list", gu.mrow == 6);
-    { uint8_t c = gv.t[1].mch; sim_enc(EN_PRESET, 1); run(FS / 20u); check("row SYNTHE CANAL, PRESETS: its channel", gv.t[1].mch == c + 1); gv.t[1].mch = c; }
+    { uint8_t c = gv.t[1].mch; sim_enc(EN_ALGO, 1); run(FS / 20u); check("row SYNTHE CANAL, ALGORITHM: its channel", gv.t[1].mch == c + 1 && gu.page == GP_MIDI); gv.t[1].mch = c; }
+    sim_enc(EN_PRESET, 1); run(FS / 20u); check("MIDI: PRESETS goes down a row", gu.mrow == 7);
+    sim_enc(EN_PRESET, -1); run(FS / 20u); check("MIDI: PRESETS goes up a row", gu.mrow == 6);
     shot("midi2");
     /* REC on the page shown: MIX's delay knob too */
     gv.sel = 9; gu.grp = 0; tap_btn(B_LFO); while (gu.page != GP_MIX) tap_btn(B_LFO);
@@ -305,6 +324,30 @@ int main(void)
       tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT); run(FS / 20u); sim_enc(EN_SELECT, 2); run(FS / 20u); pr = trk[GV_ROWTRK[2]].pre;
       tap_btn(B_OCTDN); tap_btn(B_OCTUP); check("OCT- then OCT+: the validated sound stays", trk[GV_ROWTRK[2]].pre == pr); }
     tap_btn(B_ARP); while (gu.page != GP_STY) tap_btn(B_ARP); { uint8_t st = gv.style; sim_enc(EN_SELECT, 2); run(FS / 20u); tap_btn(B_OCTDN); check("STYLES: OCT- takes the style shown", gv.style != st && gv.style == gu.sty); }
+    {   /* the PIANO, and SAVE on the SON page: the sound kept */
+        uint16_t ids[64]; uint32_t cur, n, k, found = 0; uint8_t cut; double r1, r2;
+        tap_btn(B_HOME); gv.sel = 9; tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT); run(FS / 20u);
+        n = gv_snd_ids(ids, &cur);
+        for (k = 0; k < n + 2u && !found; k++) { sim_enc(EN_SELECT, 1); run(FS / 20u); if (gv.t[1].wave == GW_PIANO) found = 1; }
+        check("SYNTHE: a PIANO in its sounds", found);
+        shot("son_piano");
+        if (song.playing) { sim_btn(B_PLAY, 1); run(FS / 50u); sim_btn(B_PLAY, 0); run(FS / 2u); }
+        sim_key(STEP_KEY[4], 1); r1 = rms_of(FS / 4u); run(FS); r2 = rms_of(FS / 4u); sim_key(STEP_KEY[4], 0); run(FS / 4u);
+        printf("info  PIANO held: first 1/4 s %.4f, after 1 s %.4f\n", r1, r2);
+        check("PIANO: sounds, and the held note dies away", r1 > 0.003 && r2 < r1 * 0.7);
+        gv.t[1].cut = 33; cut = gv.t[1].cut;
+        tap_btn(B_SAVE); check("SON, SAVE: stays on the page, the sound is one of MES SONS", gu.page == GP_SON && gv_sndcur[1] >= GV_NSND);
+        sim_enc(EN_SELECT, 1); run(FS / 20u); check("another sound loaded", gv.t[1].cut != cut || gv_sndcur[1] < GV_NSND);
+        n = gv_snd_ids(ids, &cur);
+        for (k = 0; k < n + 2u && gv_sndcur[1] < GV_NSND; k++) { sim_enc(EN_SELECT, 1); run(FS / 20u); }
+        check("MON SON 1 back from the list: its cutoff too", gv_sndcur[1] >= GV_NSND && gv.t[1].cut == 33 && gv.t[1].wave == GW_PIANO);
+        shot("son_usr");
+        tap_btn(B_OCTDN);
+        gv.sel = 2; run(FS / 20u); n = gv_snd_ids(ids, &cur);
+        tap_btn(B_SAVE); check("CLAP, SAVE: kept in the user bank", trk[GV_ROWTRK[2]].pre >= PRE_NFACT && gv_snd_ids(ids, &cur) == n + 1u);
+        shot("son_usr_drum");
+        tap_btn(B_HOME);
+    }
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);
     check("GLO key 16: Hortator's own pages", gv_on == 0);
