@@ -14,7 +14,7 @@ static int check(const char *what, int ok)
 }
 static float wav[FS * 8 * 2];
 static uint32_t wn;
-static double rms_acc;
+static double rms_acc, lr_l, lr_r;
 static void run(uint32_t frames)
 {
     while (frames) {
@@ -23,11 +23,13 @@ static void run(uint32_t frames)
         for (i = 0; i < n * 2u; i++) {
             float v = sim_audio()[i];
             rms_acc += (double)v * v;
+            if (i & 1u) lr_r += (double)v * v; else lr_l += (double)v * v;
             if (wn < sizeof wav / sizeof wav[0]) wav[wn++] = v;
         }
         frames -= n;
     }
 }
+static void lr_of(uint32_t frames, double *l, double *r) { lr_l = lr_r = 0; run(frames); *l = sqrt(lr_l / frames); *r = sqrt(lr_r / frames); }
 static double rms_of(uint32_t frames) { rms_acc = 0; run(frames); return sqrt(rms_acc / (frames * 2.0)); }
 static void shot(const char *name)
 {
@@ -267,7 +269,7 @@ int main(void)
     tap_btn(B_ENV); tap_btn(B_ENV); check("ENV x7: FX C", gu.page == GP_EFC);
     gv.sel = 2; gu.dirty = 1; run(FS / 20u); gv.rrl[2] = 0; gv.rrl[0] = 0; sim_enc(EN_K2, 1); run(FS / 20u);
     check("FX C on the CLAP: roll on that row only", gv.rrl[2] == 2 && gv.rrl[0] == 0); shot("efc"); gv.rrl[2] = 0;
-    tap_btn(B_ENV); tap_btn(B_ENV); check("ENV x9: back to ENV", gu.page == GP_ENV); gv.sel = 8;
+    tap_btn(B_ENV); tap_btn(B_ENV); tap_btn(B_ENV); tap_btn(B_ENV); tap_btn(B_ENV); check("ENV x12: back to ENV", gu.page == GP_ENV); gv.sel = 8;
     /* MIDI PISTES: a melodic track's channel and output; its notes go out on USB MIDI */
     gv.sel = 8; tap_btn(B_EDIT); while (gu.page != GP_EMIDI) tap_btn(B_EDIT);
     sim_enc(EN_K1, 4); sim_enc(EN_K2, 1); run(FS / 20u);
@@ -324,6 +326,102 @@ int main(void)
       tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT); run(FS / 20u); sim_enc(EN_SELECT, 2); run(FS / 20u); pr = trk[GV_ROWTRK[2]].pre;
       tap_btn(B_OCTDN); tap_btn(B_OCTUP); check("OCT- then OCT+: the validated sound stays", trk[GV_ROWTRK[2]].pre == pr); }
     tap_btn(B_ARP); while (gu.page != GP_STY) tap_btn(B_ARP); { uint8_t st = gv.style; sim_enc(EN_SELECT, 2); run(FS / 20u); tap_btn(B_OCTDN); check("STYLES: OCT- takes the style shown", gv.style != st && gv.style == gu.sty); }
+    {   /* FX LIVE page E: PAN, SIDECHAIN, TREMOLO, TAPE STOP */
+        double l0, r0, l1, r1, a, b; uint32_t k;
+        tap_btn(B_HOME); gv.sel = 8; tap_btn(B_ENV); while (gu.page != GP_EFE) tap_btn(B_ENV); run(FS / 20u);
+        check("ENV x9: FX E, on the bass", gu.page == GP_EFE && gu.fxpg == 4u && gu.fxt == 2u);
+        if (!sim_playing()) tap_btn(B_PLAY);
+        gv.solo = 1u << 8; gv.gmute = 0; gv.t[0].mute = 0; gv.t[0].mo = 0; gv.t[0].dly = gv.t[0].rev = gv.t[0].cho = 0; gv.xd = gv.xr = 0;
+        for (k = 0; k < 16u; k++) { gv.t[0].st[k].n = 0; gv.t[0].st[k].l4 = 4; gv.t[0].st[k].o4 = 0; }
+        gv.t[0].ar = 0; gv.autob = 0;
+        run(FS); lr_of(FS, &l0, &r0);
+        sim_enc(EN_K1, 40); run(FS / 2u); lr_of(FS, &l1, &r1);
+        printf("info  PAN centre L %.4f R %.4f, right L %.4f R %.4f\n", l0, r0, l1, r1);
+        check("PAN to the right: the left goes down, the right stays", gv.t[0].pan > 100 && l1 < l0 * 0.5 && r1 > r0 * 0.7);
+        shot("fxe");
+        gv.t[0].pan = 64;
+        for (k = 0; k < 16u; k++) trk[GV_ROWTRK[0]].step[k].on = 1;       /* a kick on every step: the bass ducked all the time */
+        gv.solo = (1u << 8) | 1u; trk[GV_ROWTRK[0]].p[P_LEVEL] = 0;
+        run(FS / 2u); a = rms_of(FS);
+        sim_enc(EN_K2, 64); sim_enc(EN_K2, 64); run(FS / 2u); b = rms_of(FS);
+        printf("info  SIDECHAIN off %.4f, full with a kick on every step %.4f\n", a, b);
+        check("SIDECHAIN: the kick ducks the bass", gv.t[0].sc == 127 && b < a * 0.9);   /* (the kick is in the measure too) */
+        gv.t[0].sc = 0; gv.solo = 1u << 8;
+        run(FS / 2u); a = rms_of(FS); sim_enc(EN_K3, 64); sim_enc(EN_K3, 64); run(FS / 2u); b = rms_of(FS);
+        printf("info  TREMOLO off %.4f, full %.4f\n", a, b);
+        check("TREMOLO: the level breathes (quieter on the whole)", gv.t[0].tr == 127 && b < a * 0.85 && b > a * 0.2);
+        gv.t[0].tr = 0;
+        run(FS / 2u); a = rms_of(FS); sim_enc(EN_K4, 64); sim_enc(EN_K4, 64); run(FS); shot("fxe_stop"); b = rms_of(FS);
+        printf("info  TAPE STOP off %.4f, full %.4f\n", a, b);
+        check("TAPE STOP full: the track has stopped", gv.t[0].ts == 127 && b < a * 0.05);
+        sim_enc(EN_K4, -64); sim_enc(EN_K4, -64); run(FS); b = rms_of(FS);
+        check("TAPE STOP back to 0: the track is back", gv.t[0].ts == 0 && b > a * 0.7);
+        gv.sel = 0; gu.dirty = 1; run(FS / 20u); sim_enc(EN_K1, -20); run(FS / 20u);
+        check("FX E on the KICK: PAN is Hortator's", trk[GV_ROWTRK[0]].p[P_PAN] < 0);
+        trk[GV_ROWTRK[0]].p[P_PAN] = 0; trk[GV_ROWTRK[0]].p[P_LEVEL] = 100; gv.solo = 0;
+        gv_set_style(9); gv_gen_all(); check("DRILL generated: the sidechain is on (the basses more)", gv.t[0].sc == 100 && gv.t[1].sc == 55);
+        gv_set_style(0); gv_gen_all(); check("TECHNO generated: the automatic sidechain is gone", gv.t[0].sc == 0 && gv.t[1].sc == 0);
+        tap_btn(B_HOME);
+    }
+    {   /* FX LIVE pages F and G: AUTO-PAN VIBRATO PITCH RING MOD / WAVEFOLD SATURATION VOYELLE NOISE */
+        double l0, r0, a, b, mn = 9, mx = 0; uint32_t k; uint32_t i0;
+        tap_btn(B_HOME); gv.sel = 8; tap_btn(B_ENV); while (gu.page != GP_EFF) tap_btn(B_ENV); run(FS / 20u);
+        check("ENV: FX F, on the bass", gu.page == GP_EFF && gu.fxpg == 5u && gu.fxt == 2u);
+        if (!sim_playing()) tap_btn(B_PLAY);
+        gv.solo = 1u << 8; gv.gmute = 0; gv.t[0].mute = 0; gv.t[0].dly = gv.t[0].rev = gv.t[0].cho = 0; gv.xd = gv.xr = 0; gv.t[0].ar = 0; gv.autob = 0;
+        for (k = 0; k < 16u; k++) { gv.t[0].st[k].n = 0; gv.t[0].st[k].l4 = 4; gv.t[0].st[k].o4 = 0; }
+        run(FS);
+        sim_enc(EN_K1, 64); sim_enc(EN_K1, 64); run(FS / 4u);
+        for (k = 0; k < 16u; k++) { lr_of(FS / 8u, &l0, &r0); a = l0 / (l0 + r0 + 1e-9); if (a < mn) mn = a; if (a > mx) mx = a; }
+        printf("info  AUTO-PAN: the left's share goes %.2f..%.2f\n", mn, mx);
+        check("AUTO-PAN: the sound travels left and right", gv.t[0].ap == 127 && mn < 0.3 && mx > 0.7);
+        shot("fxf"); gv.t[0].ap = 0;
+        i0 = gvv[0].inc[0]; sim_enc(EN_K3, 12); run(FS / 4u);
+        check("PITCH +12: the knob goes to an octave up", gv.t[0].ps == 12 && gu.fxpg == 5u);
+        a = rms_of(FS / 2u); check("PITCH +12: still sounds", a > 0.01);
+        sim_enc(EN_K3, -12); run(FS / 10u); check("PITCH back to 0", gv.t[0].ps == 0);
+        (void)i0;
+        a = rms_of(FS); sim_enc(EN_K2, 64); sim_enc(EN_K2, 64); run(FS / 4u); b = rms_of(FS);
+        check("VIBRATO: set, the level about the same", gv.t[0].vb == 127 && b > a * 0.6 && b < a * 1.5); gv.t[0].vb = 0;
+        sim_enc(EN_K4, 64); sim_enc(EN_K4, 64); run(FS / 4u); b = rms_of(FS);
+        printf("info  RING MOD off %.4f, full %.4f\n", a, b);
+        check("RING MOD: another sound, not silence, no blow-up", gv.t[0].rm == 127 && b > a * 0.1 && b < a * 2.5); gv.t[0].rm = 0;
+        tap_btn(B_ENV); run(FS / 20u); check("ENV again: FX G", gu.page == GP_EFG && gu.fxpg == 6u);
+        run(FS / 4u); a = rms_of(FS);
+        sim_enc(EN_K1, 64); sim_enc(EN_K1, 64); run(FS / 4u); b = rms_of(FS);
+        printf("info  WAVEFOLD off %.4f, full %.4f\n", a, b);
+        check("WAVEFOLD: sounds, bounded", gv.t[0].wf == 127 && b > a * 0.2 && b < a * 3.0); gv.t[0].wf = 0;
+        sim_enc(EN_K2, 64); sim_enc(EN_K2, 64); run(FS / 4u); b = rms_of(FS);
+        printf("info  SATURATION full %.4f\n", b);
+        check("SATURATION: sounds, bounded", gv.t[0].sat == 127 && b > a * 0.3 && b < a * 3.0); gv.t[0].sat = 0;
+        sim_enc(EN_K3, 30); run(FS / 4u); b = rms_of(FS); shot("fxg");
+        printf("info  VOYELLE at %d: %.4f\n", gv.t[0].fo, b);
+        check("VOYELLE: sounds, bounded", gv.t[0].fo > 0 && b > a * 0.03 && b < a * 3.0);
+        sim_enc(EN_K3, 64); sim_enc(EN_K3, 64); run(FS / 4u); b = rms_of(FS / 2u); check("VOYELLE on U: still fine", gv.t[0].fo == 127 && b < a * 3.0 && b > a * 0.02); gv.t[0].fo = 0;
+        gv.solo = 0; gv.gmute = 3; run(FS / 2u); a = rms_of(FS / 2u);
+        sim_enc(EN_K4, 64); sim_enc(EN_K4, 64); run(FS / 4u); b = rms_of(FS / 2u);
+        printf("info  NOISE: all cut %.5f, riser full %.4f\n", a, b);
+        check("NOISE RISER: heard with everything else cut", gv.nr == 127 && a < 0.002 && b > 0.01);
+        gv.nr = 0; gv.gmute = 0;
+        gv.sel = 0; gu.dirty = 1; run(FS / 20u); { char v[20]; uint8_t kn[4]; gv_knobs(kn); gv_kfmt(kn[0], gv_kget(kn[0]), v); check("FX G on the KICK: WAVEFOLD is the melody's", !strcmp(v, "MELODIE")); }
+        tap_btn(B_HOME);
+    }
+    {   /* HOME: FX LIVE last, HOME again goes through its pages; LFO: MIX, LOOP ROLL, then the effect pages */
+        uint32_t k;
+        tap_btn(B_SEQ); tap_btn(B_HOME); tap_btn(B_HOME); tap_btn(B_HOME); tap_btn(B_HOME);
+        check("HOME x4: MIXEUR", gu.page == GP_MIXR);
+        tap_btn(B_HOME); check("HOME x5: FX LIVE, page A", gu.page == GP_LFX && gu.fxpg == 0u);
+        tap_btn(B_HOME); check("HOME again: FX LIVE page B", gu.page == GP_LFX && gu.fxpg == 1u);
+        for (k = 0; k < 5u; k++) tap_btn(B_HOME);
+        check("HOME x5 more: FX LIVE page G", gu.page == GP_LFX && gu.fxpg == 6u);
+        tap_btn(B_HOME); check("HOME once more: back to LIVE", gu.page == GP_LIVE);
+        gv.sel = 9; tap_btn(B_LFO); check("LFO: MIX", gu.page == GP_MIX);
+        tap_btn(B_LFO); tap_btn(B_LFO); check("LFO x3: FX A on the track", gu.page == GP_EFA && gu.btn == B_LFO);
+        for (k = 0; k < 6u; k++) tap_btn(B_LFO);
+        run(FS / 20u); check("LFO x9: FX G, on the SYNTHE", gu.page == GP_EFG && gu.fxpg == 6u && gu.fxt == 4u);
+        tap_btn(B_LFO); check("LFO x10: back to MIX", gu.page == GP_MIX);
+        tap_btn(B_HOME);
+    }
     {   /* the PIANO, and SAVE on the SON page: the sound kept */
         uint16_t ids[64]; uint32_t cur, n, k, found = 0; uint8_t cut; double r1, r2;
         tap_btn(B_HOME); gv.sel = 9; tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT); run(FS / 20u);

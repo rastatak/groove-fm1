@@ -58,6 +58,11 @@ typedef struct {                   /* a melodic track; knobs 0..127 like Hortato
     int8_t po;                     /* pitch, whole octaves -3..3 */
     uint8_t vol, cut, res, env, att, dec, gl, lfr, lfd, dist, dly, rev;
     uint8_t mo, mch;               /* MIDI out (USB): 0 the inner sound, 1 MIDI only, 2 both; its channel 1..16 */
+    uint8_t ap, vb, rm, wf, sat, fo;  /* FX LIVE pages F G: auto-pan, vibrato, ring modulation, wavefolder, saturation, the
+                                    * vowel filter (0 off, 1..127 A E I O U) */
+    int8_t ps;                     /* pitch shift, semitones -12..12 */
+    uint8_t pan, sc, tr, ts;       /* FX LIVE page E: pan (64 the middle), sidechain (the kick ducks it), tremolo (an 1/8
+                                    * note), tape stop (the track slows down to a halt) */
     uint8_t cho, rl, sk, rv, lp, cr, gt, hf;   /* FX LIVE pages C D: chorus, roll x2-4, skipped steps, reverse, loop
                                     * 1-8 steps, bitcrush, gate, half tempo */
     gv_step_t st[16];
@@ -76,6 +81,7 @@ typedef struct {                   /* everything Groove keeps (gv_save: flash) *
     uint8_t eq[3];                 /* the general equaliser: lows, mids, highs (64 flat, 0 cut, 127 +6 dB) */
     uint8_t mf, hp, mq, xs, xd, xr;  /* the whole mix (web: FILTRE DJ): low-pass (127 open), high-pass (0 open), resonance,
                                     * disto, echo and reverb sends */
+    uint8_t nr;                    /* the noise riser (one for the whole mix): louder and brighter as it goes up */
     uint8_t algo;                  /* ALGORITHM off the LIVE pages: 0 pages 1 BPM 2 FILTRE DJ 3 VOLUME 4 RYTHMES 5 SWING */
     gv_trk_t t[GV_NT];
 } gv_state_t;
@@ -95,6 +101,9 @@ typedef struct {                   /* a voice, ISR only */
     uint32_t pgate;
     uint8_t pacc, pslide, pn;
     uint8_t pnote, mnote, mon, mchn; /* MIDI out: the note waiting, the one held on the other machine, its channel */
+    uint32_t rph;                  /* ring modulation: the carrier's phase */
+    int32_t f1l, f1b, f2l, f2b;    /* the vowel filter: two band-passes */
+    uint32_t tsl;                  /* tape stop: how far it has slowed, Q16 (0 full speed .. 127 << 16 stopped) */
     int32_t crs; uint32_t crh, rlc;  /* bitcrush: the held sample, its countdown; roll: samples to the next hit */
 } gv_voice_t;
 
@@ -103,7 +112,7 @@ static uint32_t gv_step_len(uint32_t pos);
 static int gv_track_heard(uint32_t k);
 static void midi_out_event(uint32_t pkt);        /* usb_app.c: a packet into the USB MIDI out ring (from the audio ISR) */
 static volatile uint32_t gv_on_ms[6];           /* when each melodic track's last note began (the ENV page's dot) */
-static int16_t gv_scope[256];                   /* the shown track's last samples (the OSC page) */
+static int16_t gv_scope[128];                   /* the shown track's last samples, 1 in 8 (the OSC page) */
 static volatile uint8_t gv_scw, gv_scope_trk, gv_scdec;
 /* FX pads held (web: LOOP 1-8, ROLL x2-4, REVERSE) on a target: 0 all, 1 the rhythm, 2 the melody */
 static volatile uint8_t gv_plp, gv_prl, gv_prv, gv_ptg;
@@ -125,6 +134,12 @@ static volatile uint32_t gv_hit_req;            /* main -> ISR: drum rows to hit
 static volatile int16_t gv_live_deg = -1000;    /* main -> ISR: the degree a black key plays on the shown track */
 static volatile uint8_t gv_live_trk = 0xFF, gv_live_off;
 static volatile uint8_t gv_regen_due;           /* ISR -> main: bit 0 a style auto-random, bits 1.. track auto-randoms */
+static const uint32_t GV_SEMI[25] = {32768, 34716, 36781, 38968, 41285, 43740, 46341, 49097, 52016, 55109, 58386, 61858, 65536, 69433, 73562, 77936, 82570, 87480, 92682, 98193, 104032, 110218, 116772, 123715, 131072};   /* 2^(k/12) Q16, k -12..12 */
+static const uint8_t GV_F1[5] = {68, 52, 45, 55, 47}, GV_F2[5] = {77, 88, 91, 68, 65};   /* A E I O U: the two formants, as cutoffs */
+static uint32_t gv_vbp, gv_nzs = 0x1234567u;    /* the vibrato's phase (~6 Hz), the noise's state */
+static int32_t gv_nzl;
+static int32_t gv_sck;                         /* sidechain: the kick's envelope, Q15 (32767 at the hit, then back to 0) */
+static uint8_t gv_scauto;                      /* the sidechain was set by the generator (TRAP, DRILL): another style clears it */
 static volatile uint32_t gv_hit_t[14];          /* last hit per track (song.tick), the screen's flashes */
 static const uint32_t gv_inc_tab[128] = {   /* MIDI note -> phase increment at 44.1 kHz (no float on the device) */
         796254u,     843601u,     893765u,     946911u,    1003217u,    1062871u,    1126073u,    1193033u,
@@ -371,6 +386,10 @@ static void gv_gen_all(void)                   /* the style's rhythm + a melody 
     uint32_t i;
     gv_gen_rhythm();
     for (i = 0; i < GV_NT; i++) gv_gen_mel(i);
+    if (gv.style == 8u || gv.style == 9u) {        /* TRAP, DRILL: the kick ducks the basses a lot, the rest a little */
+        for (i = 0; i < GV_NT; i++) gv.t[i].sc = GV_TTYPE[i] == GT_BASS ? 100 : 55;
+        gv_scauto = 1;
+    } else if (gv_scauto) { for (i = 0; i < GV_NT; i++) gv.t[i].sc = 0; gv_scauto = 0; }
 }
 
 /* ------------------------------------------------------------------ voices (audio ISR) --- */
@@ -480,14 +499,40 @@ static int gv_track_heard(uint32_t k)                     /* 0..7 rows, 8..13 tr
 static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_t *sr, uint32_t n)
 {
     uint32_t i, j, k, sn = gv_stepn ? gv_stepn : gv_step_len(gv_pos);
+    uint32_t trinc = 0x80000000u / (sn ? sn : 1u), trp0 = ((gv_pos & 1u) * sn + gv_acc_s) * trinc;   /* TREMOLO: one turn an 1/8 note */
+    int32_t sck0 = gv_sck, aptri, vbtri;
     if (gv.magic != GV_MAGIC) return;
+    { uint32_t a = ((gv_pos & 7u) * sn + gv_acc_s) * (0x20000000u / (sn ? sn : 1u));
+      aptri = (int32_t)((a < 0x80000000u ? a : ~a) >> 15) - 32768;     /* a triangle, -32768..32767 */
+      gv_vbp += n * 584318u; vbtri = (int32_t)((gv_vbp < 0x80000000u ? gv_vbp : ~gv_vbp) >> 15) - 32768; }
+    if (gv.nr) {                                   /* NOISE RISER: one for the mix; up = louder and brighter, a little reverb */
+        int32_t k = 300 + gv.nr * gv.nr * 2, lv = gv.nr * gv.nr;
+        for (j = 0; j < n; j++) {
+            int32_t z, o;
+            gv_nzs = gv_nzs * 1664525u + 1013904223u; z = (int32_t)(gv_nzs >> 16) - 32768;
+            gv_nzl += ((z - gv_nzl) * k) >> 15;
+            o = (gv_nzl * lv) >> 13;
+            ml[j] += o; mr[j] += o; sr[j] += o >> 1;
+        }
+    }
+    for (j = 0; j < n; j++) { gv_sck -= (gv_sck >> 12) + 1; if (gv_sck < 0) gv_sck = 0; }   /* SIDECHAIN: the kick's envelope goes back */
     for (i = 0; i < GV_NT; i++) {
         gv_voice_t *v = &gvv[i];
         const gv_trk_t *t = &gv.t[i];
         int32_t lfo, cbase, q, fk = 1000, vol, dly, rev, drive, cho, gtv;
         uint32_t trl = gv_prl && gv_pon(0) ? gv_prl : t->rl, rper = trl > 1u ? sn / trl : 0u, crk = 1u + t->cr / 16u, crb = t->cr / 11u;
-        uint32_t ty = GV_TTYPE[i];
+        uint32_t ty = GV_TTYPE[i], tst = (uint32_t)t->ts << 16, trp = trp0, pf, f1k = 0, f2k = 0;
+        int32_t pan = t->pan, pl, pr, sca = t->sc * 258, tra = t->tr * 258, sce = sck0, rmk = t->rm * 256, wfg = 8 + t->wf, stg = 32 + t->sat;
         if (!v->on && !v->delay) continue;
+        if (t->ap) pan = gv_clamp(pan + ((aptri * t->ap) >> 16), 0, 127);   /* AUTO-PAN: left and right over two beats */
+        pl = pan > 64 ? (127 - pan) * 2 : 128; pr = pan < 64 ? pan * 2 : 128;
+        pf = GV_SEMI[gv_clamp(t->ps, -12, 12) + 12];   /* PITCH, then VIBRATO (+-50 cents at most): one factor, Q16 */
+        if (t->vb) pf = (uint32_t)(((uint64_t)pf * (uint32_t)(65536 + (((vbtri >> 8) * t->vb) >> 3))) >> 16);
+        if (t->fo) {                                  /* the vowel: where between A E I O U, the two band-passes there */
+            uint32_t ps8 = ((uint32_t)t->fo - 1u) * 4u * 256u / 126u, ix = ps8 >> 8 > 3u ? 3u : ps8 >> 8, fr = ps8 - (ix << 8);
+            f1k = (uint32_t)gv_fcoef((int32_t)(GV_F1[ix] * (256u - fr) + GV_F1[ix + 1u] * fr));
+            f2k = (uint32_t)gv_fcoef((int32_t)(GV_F2[ix] * (256u - fr) + GV_F2[ix + 1u] * fr));
+        }
         lfo = t->lfd ? gv_lfo(v, t, n) : 0;
         q = 32767 - t->res * 240;                     /* damping: less = more resonance */
         vol = gv_track_heard(8u + i) && t->mo != 1u ? t->vol * 200 : 0;   /* (MIDI only: silent here) */   /* x VOICE_FS-ish level */
@@ -505,8 +550,22 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
                     uint32_t g = v->fxs ? 900u + t->dec * 20u : (v->slide ? 600u : 40u + (uint32_t)t->gl * 40u);
                     v->inc[k] += (uint32_t)(d / (int32_t)g + (d > 0 ? 1 : d < 0 ? -1 : 0));
                 }
-                v->ph[k] += v->inc[k];
+                {   /* the step: PITCH and VIBRATO (pf), TAPE STOP (slower) */
+                    uint32_t st2 = v->inc[k];
+                    if (pf != 65536u) st2 = (uint32_t)(((uint64_t)st2 * pf) >> 16);
+                    if (v->tsl) st2 = (uint32_t)(((uint64_t)st2 * ((128u << 16) - v->tsl)) >> 23);
+                    v->ph[k] += st2;
+                    if (!k && rmk) v->rph += st2 + (st2 >> 1);      /* RING MOD: its carrier a fifth above */
+                }
                 x += gv_osc(v->ph[k] + (k ? k * 0x1234567u : 0u), t->wave) / (int32_t)(v->nosc == 3u ? 3 : 1);
+            }
+            if (rmk) {                                   /* RING MOD: the sound times a triangle */
+                int32_t c = (int32_t)(v->rph >> 16) - 32768; c = c < 0 ? 2 * c + 32767 : 32767 - 2 * c;
+                x += ((((x * c) >> 15) - x) * rmk) >> 15;
+            }
+            if (t->wf) {                                 /* WAVEFOLDER: louder, and what goes over the top folds back */
+                uint32_t u = (uint32_t)(((x * wfg) >> 3) + 32768) & 0x1FFFFu;
+                x = u < 65536u ? (int32_t)u - 32768 : 98304 - (int32_t)u;
             }
             if (v->gate) { if (v->gate != 0xFFFFFFFFu) v->gate--; }
             else { v->atgt = 0; if (v->mon) gv_midi_off(v); }
@@ -527,6 +586,22 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
             v->lp = gv_clamp(v->lp, -200000, 200000); v->bp = gv_clamp(v->bp, -200000, 200000);
             s = t->ftype == GF_HP ? hp : t->ftype == GF_BP ? v->bp : v->lp;
             if (drive) { s = s * (1 + drive / 16); s = s > 30000 ? 30000 + (s - 30000) / 8 : s < -30000 ? -30000 + (s + 30000) / 8 : s; }
+            if (t->sat) {                                /* SATURATION: a soft knee in three slopes, then back down */
+                int32_t a;
+                s = (s * stg) >> 5; a = s < 0 ? -s : s;
+                if (a > 12000) a = 12000 + ((a - 12000) >> 1);
+                if (a > 24000) a = 24000 + ((a - 24000) >> 2);
+                if (a > 30000) a = 30000 + ((a - 30000) >> 4);
+                s = ((s < 0 ? -a : a) * (256 - t->sat)) >> 8;
+            }
+            if (f1k) {                                   /* the vowel: two band-passes side by side */
+                int32_t in = gv_clamp(s, -60000, 60000) >> 3, h;   /* (/8: the band-passes ring 8 times louder) */
+                v->f1l += ((int32_t)f1k * v->f1b) >> 15; h = in - v->f1l - (v->f1b >> 3); v->f1b += ((int32_t)f1k * h) >> 15;
+                v->f2l += ((int32_t)f2k * v->f2b) >> 15; h = in - v->f2l - (v->f2b >> 3); v->f2b += ((int32_t)f2k * h) >> 15;
+                v->f1b = gv_clamp(v->f1b, -150000, 150000); v->f2b = gv_clamp(v->f2b, -150000, 150000);
+                v->f1l = gv_clamp(v->f1l, -150000, 150000); v->f2l = gv_clamp(v->f2l, -150000, 150000);
+                s = v->f1b + v->f2b;
+            }
             s = (int32_t)(((int64_t)s * (v->amp >> 9)) >> 15);   /* amp Q24 -> Q15 */
             if (t->cr) {                                 /* BITCRUSH: fewer bits, a held sample */
                 if (!v->crh--) { v->crh = crk - 1u; v->crs = (s >> crb) << crb; }
@@ -535,8 +610,19 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
             if (t->gt && (gv_acc_s + j) * 2u > sn) s = (s * gtv) >> 7;   /* GATE: the step's second half down */
             if (rper && !--v->rlc) { v->rlc = rper; if (v->gate) { v->amp >>= 3; v->fenv = 32767; } }   /* ROLL: hit again */
             s = (s * vol) >> 12;
-            ml[j] += s; mr[j] += s;
-            if (i == gv_scope_trk && !(gv_scdec++ & 3u)) gv_scope[gv_scw++] = (int16_t)gv_clamp(s >> 3, -32767, 32767);   /* 1 in 4: ~23 ms */
+            if (v->tsl != tst) {                         /* TAPE STOP: the speed glides to where the knob is (~0.5 s) */
+                int32_t d = (int32_t)tst - (int32_t)v->tsl;
+                v->tsl = d > -4096 && d < 4096 ? tst : (uint32_t)((int32_t)v->tsl + (d >> 12));
+            }
+            if (v->tsl >= (96u << 16)) s = (s * (int32_t)(127u - (v->tsl >> 16))) >> 5;   /* the last quarter: it fades too */
+            if (sca | tra) {                             /* SIDECHAIN and TREMOLO: one gain, Q15 */
+                int32_t g = 32768;
+                if (sca) { g -= (sce * sca) >> 15; sce -= (sce >> 12) + 1; if (sce < 0) sce = 0; }
+                if (tra) { uint32_t tp = trp + j * trinc; g = (g * (32768 - ((int32_t)((tp < 0x80000000u ? tp : ~tp) >> 16) * tra >> 15))) >> 15; }
+                s = (int32_t)(((int64_t)s * g) >> 15);
+            }
+            ml[j] += (s * pl) >> 7; mr[j] += (s * pr) >> 7;
+            if (i == gv_scope_trk && !(gv_scdec++ & 7u)) gv_scope[gv_scw++ & 127u] = (int16_t)gv_clamp(s >> 3, -32767, 32767);   /* 1 in 8: ~23 ms */
             if (cho) sc[j] += (s * cho) >> 15;
             if (dly) sd[j] += (s * dly) >> 15;
             if (rev) sr[j] += (s * rev) >> 15;
@@ -636,6 +722,7 @@ static void gv_play_step(uint32_t pos)
         co = gv_choff();
     }
     for (i = 0; i < 8u; i++) if (trk[GV_ROWTRK[i]].step[pos & 15u].on) gv_hit_t[i] = song.tick;
+    if (trk[GV_ROWTRK[0]].step[pos & 15u].on && gv_track_heard(0)) gv_sck = 32767;   /* the kick: the sidechain ducks */
     for (i = 0; i < GV_NT; i++) {
         const gv_trk_t *t = &gv.t[i];
         uint32_t c;

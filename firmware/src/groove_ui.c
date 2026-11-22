@@ -11,17 +11,19 @@ static void gv_boot(void);
 
 enum { GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, GP_RYT, GP_MEL, GP_STY, GP_VIS, GP_GRYT, GP_GMEL, GP_FXR, GP_FXA, GP_FXB, GP_FXD, GP_FXP,
        GP_SCL, GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_MIX, GP_LRR, GP_SON, GP_GLO, GP_SAVE,
-       GP_SONR, GP_SEDIT, GP_EMIDI, GP_MIDI, GP_BKR, GP_BKM, GP_EFA, GP_EFB, GP_EFC, GP_EFD, GP_MIXR, GP_N };   /* (added last: the ranges above stay) */
+       GP_SONR, GP_SEDIT, GP_EMIDI, GP_MIDI, GP_BKR, GP_BKM, GP_EFA, GP_EFB, GP_EFC, GP_EFD, GP_MIXR, GP_EFE, GP_EFF, GP_EFG, GP_N };   /* (added last: the ranges above stay) */
 static const char *const GP_T[GP_N] = {"LIVE", "LIVE RYT", "LIVE MEL", "FX LIVE", "RYTHME", "MELODIE", "STYLES", "VISU", "GEN RYT",
                                        "GEN MEL", "FX RECAP", "FX FILTRE", "FX ESPACE", "FX BATT", "FX PERF", "GAMME", "ENV", "FILTRE",
                                        "LFO", "OSC", "MIX", "LOOP ROLL", "SON", "TEMPO", "BANQUE", "SON REGL.", "EDITER", "MIDI PISTES",
-                                       "MIDI", "RYTHMES", "MELODIES", "FX A", "FX B", "FX C", "FX D", "MIXEUR"};
-#define GV_EFP(p) ((p) >= GP_EFA && (p) <= GP_EFD)     /* ENV pages 5-8: FX LIVE's 16 effects, on the shown track */
-static const uint8_t GV_ENVP[8] = {GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_EFA, GP_EFB, GP_EFC, GP_EFD};
+                                       "MIDI", "RYTHMES", "MELODIES", "FX A", "FX B", "FX C", "FX D", "MIXEUR", "FX E", "FX F", "FX G"};
+#define GV_EFP(p) (((p) >= GP_EFA && (p) <= GP_EFD) || ((p) >= GP_EFE && (p) <= GP_EFG))   /* ENV pages 5-11: FX LIVE's 28 effects, on the shown track */
+/* LFO: its two pages, then the same 28 effects (HOME: FX LIVE comes last, and HOME again goes through its pages A..G) */
+static const uint8_t GV_LFOP[9] = {GP_MIX, GP_LRR, GP_EFA, GP_EFB, GP_EFC, GP_EFD, GP_EFE, GP_EFF, GP_EFG};
+static const uint8_t GV_ENVP[11] = {GP_ENV, GP_FLT, GP_LFO, GP_OSC, GP_EFA, GP_EFB, GP_EFC, GP_EFD, GP_EFE, GP_EFF, GP_EFG};
 #define GV_PERFP(p) ((p) >= GP_FXA && (p) <= GP_FXP)   /* the FX pages with the pads (LOOP ROLL REVERSE held) */
 /* button -> its pages (B_* of panel.c); 0xFF = none */
 static const uint8_t GV_GRP[NB][5] = {
-    [B_HOME] = {GP_LIVE, GP_LRYT, GP_LMEL, GP_LFX, GP_MIXR}, [B_SEQ] = {GP_RYT, GP_MEL, 0xFF, 0xFF, 0xFF},
+    [B_HOME] = {GP_LIVE, GP_LRYT, GP_LMEL, GP_MIXR, GP_LFX}, [B_SEQ] = {GP_RYT, GP_MEL, 0xFF, 0xFF, 0xFF},
     [B_ARP] = {GP_STY, GP_VIS, GP_GRYT, GP_GMEL, 0xFF},  [B_FX] = {GP_FXR, GP_FXA, GP_FXB, GP_FXD, GP_FXP},
     [B_SCL] = {GP_SCL, 0xFF, 0xFF, 0xFF, 0xFF},          [B_ENV] = {GP_ENV, GP_FLT, GP_LFO, GP_OSC, 0xFF},
     [B_LFO] = {GP_MIX, GP_LRR, 0xFF, 0xFF, 0xFF},        [B_EDIT] = {GP_SON, GP_SONR, GP_SEDIT, GP_EMIDI, 0xFF},
@@ -39,7 +41,7 @@ static struct {
     uint8_t fxt, fxpg;              /* FX LIVE: the target (0 rhythm, 1 all the melody, 2..7 a track), the page A..D */
     int8_t fxd;
     uint32_t fxa;
-    int16_t byp[8][16];             /* FX LIVE: the value an effect had before its key cut it (-1 = not cut) */
+    int8_t byp[8][28];             /* FX LIVE: the value an effect had before its key cut it (-1 = not cut) */
     uint8_t mrow;                   /* GLO MIDI: the list's cursor */
     uint8_t gcur;                   /* GLO: the option under the cursor (PRESETS up/down, ALGORITHM left/right) */
     uint8_t ppage, pbtn, snp, sns;  /* the page before this button's (OCT+ = back); EDIT SON's snapshot: its page / track */
@@ -104,15 +106,17 @@ static const char *const KN_L[KN_N] = {"", "VOLUME", "VOLUME", "SWING", "AUTO", 
 static gv_step_t *gv_stp(void) { return &gv_tr()->st[gu.cur & 15u]; }
 static track_t *gv_rt(void) { return &trk[GV_ROWTRK[gv.sel & 7]]; }
 /* ------------------------------------------------------------- FX LIVE: 16 effects on 4 pages, on a target --- */
-enum { FE_CUT, FE_RES, FE_DIST, FE_DLY, FE_REV, FE_LFD, FE_LFR, FE_VOL, FE_CHO, FE_RL, FE_SK, FE_RV, FE_LP, FE_CR, FE_GT, FE_HF, FE_N };
+enum { FE_CUT, FE_RES, FE_DIST, FE_DLY, FE_REV, FE_LFD, FE_LFR, FE_VOL, FE_CHO, FE_RL, FE_SK, FE_RV, FE_LP, FE_CR, FE_GT, FE_HF, FE_PAN, FE_SC, FE_TR, FE_TS, FE_AP, FE_VB, FE_PS, FE_RM, FE_WF, FE_ST, FE_FO, FE_NR, FE_N };
 static const char *const FE_L[FE_N] = {"FILTRE", "RESO", "DISTO", "ECHO", "REVERB", "WOBBLE", "VITESSE", "VOLUME",
-                                       "CHORUS", "ROLL", "PAS SAUTES", "REVERSE", "LOOP", "BITCRUSH", "GATE", "DEMI-TEMPO"};
-static const char *const FE_LD[FE_N] = {0, 0, 0, 0, 0, "ENV FILT", "DEC FILT", 0, 0, 0, 0, 0, 0, 0, 0, 0};   /* the drums' */
-static const int16_t FE_OFF[FE_N] = {127, 0, 0, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0};   /* cut = this; -1 no cut */
+                                       "CHORUS", "ROLL", "PAS SAUTES", "REVERSE", "LOOP", "BITCRUSH", "GATE", "DEMI-TEMPO",
+                                       "PAN", "SIDECHAIN", "TREMOLO", "TAPE STOP",
+                                       "AUTO-PAN", "VIBRATO", "PITCH", "RING MOD", "WAVEFOLD", "SATURATION", "VOYELLE", "NOISE"};
+static const char *const FE_LD[FE_N] = {0, 0, 0, 0, 0, "ENV FILT", "DEC FILT", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};   /* the drums' */
+static const int16_t FE_OFF[FE_N] = {127, 0, 0, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0};   /* cut = this; -1 no cut */
 static const uint8_t FE_RLO[4] = {0, 2, 3, 4}, FE_LPO[5] = {0, 1, 2, 4, 8};
 static const char *const FXT_N[8] = {"RYTHME", "MELODIE", "BASSE", "BASSE 2", "SYNTHE", "SYNTHE 2", "NAPPE", "FX"};
 static const uint8_t FXT_TRK[8] = {0, 0, 0, 2, 1, 3, 4, 5};   /* targets 2..7 -> gv.t[] */
-static const char *const FXPN[4] = {"A", "B", "C", "D"};
+static const char *const FXPN[7] = {"A", "B", "C", "D", "E", "F", "G"};
 static const int8_t GV_QSIN[65] = {0,3,6,9,12,16,19,22,25,28,31,34,37,40,43,46,49,51,54,57,60,63,65,68,71,73,76,78,81,83,85,88,90,92,94,96,98,100,102,104,106,107,109,111,112,113,115,116,117,118,120,121,122,122,123,124,125,125,126,126,126,127,127,127,127};
 static int32_t gv_sin(uint32_t a)                     /* a 0..255 = one turn -> -127..127 */
 {
@@ -126,9 +130,14 @@ static uint8_t *gv_tfld(gv_trk_t *t, uint32_t e)
     case FE_CUT: return &t->cut; case FE_RES: return &t->res; case FE_DIST: return &t->dist; case FE_DLY: return &t->dly;
     case FE_REV: return &t->rev; case FE_LFD: return &t->lfd; case FE_LFR: return &t->lfr; case FE_VOL: return &t->vol;
     case FE_CHO: return &t->cho; case FE_RL: return &t->rl; case FE_SK: return &t->sk; case FE_RV: return &t->rv;
-    case FE_LP: return &t->lp; case FE_CR: return &t->cr; case FE_GT: return &t->gt; default: return &t->hf;
+    case FE_LP: return &t->lp; case FE_CR: return &t->cr; case FE_GT: return &t->gt; case FE_PAN: return &t->pan;
+    case FE_SC: return &t->sc; case FE_TR: return &t->tr; case FE_TS: return &t->ts; case FE_AP: return &t->ap;
+    case FE_VB: return &t->vb; case FE_RM: return &t->rm; case FE_WF: return &t->wf; case FE_ST: return &t->sat;
+    case FE_FO: return &t->fo; default: return &t->hf;
     }
 }
+static int32_t gv_tget(gv_trk_t *t, uint32_t e) { return e == FE_PS ? t->ps + 12 : *gv_tfld(t, e); }   /* (PITCH: -12..12 kept, 0..24 shown) */
+static void gv_tset(gv_trk_t *t, uint32_t e, int32_t v) { if (e == FE_PS) t->ps = (int8_t)(v - 12); else *gv_tfld(t, e) = (uint8_t)v; }
 static int32_t gv_dget(uint32_t r, uint32_t e)       /* a drum row's value of an effect, 0..127 (or its choice) */
 {
     const track_t *t = &trk[GV_ROWTRK[r]];
@@ -140,6 +149,9 @@ static int32_t gv_dget(uint32_t r, uint32_t e)       /* a drum row's value of an
     case FE_CR: return t->p[P_ITYPE] == IT_CRUSH ? 127 - t->p[P_IA] : 0;
     case FE_GT: return t->p[P_SLCR] == SL_GATE ? t->p[P_SLDEPTH] : 0;
     case FE_RL: return gv.rrl[r]; case FE_SK: return gv.rsk[r]; case FE_RV: return gv.rrv[r];
+    case FE_PAN: return gv_clamp(t->p[P_PAN] + 64, 0, 127);
+    case FE_PS: return 12;
+    case FE_SC: case FE_TR: case FE_TS: case FE_AP: case FE_VB: case FE_RM: case FE_WF: case FE_ST: case FE_FO: return 0;   /* (the melody's only: the kick is what ducks, the drums are not slowed) */
     case FE_LP: return gv.rlp[r]; default: return gv.rhf[r];
     }
 }
@@ -157,6 +169,8 @@ static void gv_dset(uint32_t r, uint32_t e, int32_t v)
     case FE_CR: t->p[P_ITYPE] = (int16_t)(v ? IT_CRUSH : IT_OFF); t->p[P_IA] = (int16_t)(127 - v); t->p[P_IB] = (int16_t)(127 - v / 2); t->p[P_IMIX] = 127; break;
     case FE_GT: t->p[P_SLCR] = (int16_t)(v ? SL_GATE : SL_OFF); t->p[P_SLPAT] = 1; t->p[P_SLRATE] = 2; t->p[P_SLDEPTH] = (int16_t)v; break;
     case FE_RL: gv.rrl[r] = (uint8_t)v; break; case FE_SK: gv.rsk[r] = (uint8_t)v; break; case FE_RV: gv.rrv[r] = (uint8_t)v; break;
+    case FE_PAN: t->p[P_PAN] = (int16_t)gv_clamp(v - 64, -64, 63); break;
+    case FE_SC: case FE_TR: case FE_TS: case FE_AP: case FE_VB: case FE_PS: case FE_RM: case FE_WF: case FE_ST: case FE_FO: break;
     case FE_LP: gv.rlp[r] = (uint8_t)v; break; default: gv.rhf[r] = (uint8_t)v; break;
     }
 }
@@ -165,19 +179,21 @@ static int32_t gv_fxget(uint32_t e)                   /* the target's value: the
 {
     uint32_t k, n = 0;
     int32_t a = 0;
+    if (e == FE_NR) return gv.nr;                     /* (one riser for the whole mix, whatever the target) */
     if (gu.fxt == 0u && gv_fxrow >= 0) { a = gv_dget((uint32_t)gv_fxrow, e); n = 1; }
     else if (gu.fxt == 0u) { for (k = 0; k < 8u; k++) a += gv_dget(k, e); n = 8; }
-    else if (gu.fxt == 1u) { for (k = 0; k < GV_NT; k++) a += *gv_tfld(&gv.t[k], e); n = GV_NT; }
-    else { a = *gv_tfld(&gv.t[FXT_TRK[gu.fxt]], e); n = 1; }
+    else if (gu.fxt == 1u) { for (k = 0; k < GV_NT; k++) a += gv_tget(&gv.t[k], e); n = GV_NT; }
+    else { a = gv_tget(&gv.t[FXT_TRK[gu.fxt]], e); n = 1; }
     return (a + (int32_t)n / 2) / (int32_t)n;
 }
 static void gv_fxset(uint32_t e, int32_t v)
 {
     uint32_t k;
+    if (e == FE_NR) { gv.nr = (uint8_t)v; return; }
     if (gu.fxt == 0u && gv_fxrow >= 0) gv_dset((uint32_t)gv_fxrow, e, v);
     else if (gu.fxt == 0u) for (k = 0; k < 8u; k++) gv_dset(k, e, v);
-    else if (gu.fxt == 1u) for (k = 0; k < GV_NT; k++) *gv_tfld(&gv.t[k], e) = (uint8_t)v;
-    else *gv_tfld(&gv.t[FXT_TRK[gu.fxt]], e) = (uint8_t)v;
+    else if (gu.fxt == 1u) for (k = 0; k < GV_NT; k++) gv_tset(&gv.t[k], e, v);
+    else gv_tset(&gv.t[FXT_TRK[gu.fxt]], e, v);
 }
 static uint32_t gv_fxn(uint32_t e) { return e == FE_RL ? 4u : e == FE_LP ? 5u : e == FE_RV || e == FE_HF ? 2u : 0u; }   /* choices */
 static int32_t gv_fxix(uint32_t e)                    /* a choice effect: the index of its value */
@@ -190,11 +206,12 @@ static int32_t gv_fxix(uint32_t e)                    /* a choice effect: the in
 static int gv_fxon(uint32_t e) { return FE_OFF[e] < 0 || gv_fxget(e) != FE_OFF[e]; }
 static void gv_fxbyp(uint32_t e)                       /* a white key 9-16: the effect cut / back */
 {
-    int16_t *b = &gu.byp[gu.fxt][e];
+    int8_t *b = &gu.byp[gu.fxt][e];
     char m[32];
+    if (e >= FE_N) return;
     if (FE_OFF[e] < 0) { gv_say("REGLE-LE AU KNOB"); return; }
     if (*b >= 0) { gv_fxset(e, *b); *b = -1; gv_fmt(m, "%s RETABLI", FE_L[e]); }
-    else { *b = (int16_t)gv_fxget(e); gv_fxset(e, FE_OFF[e]); gv_fmt(m, "%s COUPE", FE_L[e]); }
+    else { *b = (int8_t)gv_fxget(e); gv_fxset(e, FE_OFF[e]); gv_fmt(m, "%s COUPE", FE_L[e]); }
     gv_say(m);
 }
 /* the groups (SELECT past the last track): a knob moves every member by the same amount, its value = their mean */
@@ -246,7 +263,7 @@ static void gv_krange(uint32_t id, int32_t *mn, int32_t *mx)
     case KN_SLEN: *mn = 1; *mx = 64; break;
     case KN_ROW: *mx = 7; break;
     case KN_MODEL: *mx = NMODELS - 1; break;
-    case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0, c = gv_fxn(e); *mx = c ? (int32_t)c - 1 : 127; break; }
+    case KN_FX0: case KN_FX1: case KN_FX2: case KN_FX3: { uint32_t e = gu.fxpg * 4u + id - KN_FX0, c = gv_fxn(e); *mx = c ? (int32_t)c - 1 : e == FE_PS ? 24 : 127; break; }
     case KN_PTG: case KN_BMODE: *mx = 2; break;
     case KN_KOCT: *mx = 3; break;
     case KN_MCH: *mn = 1; *mx = 16; break;
@@ -400,6 +417,10 @@ static void gv_kfmt(uint32_t id, int32_t v, char *b)
         if (e == FE_LP) { if (v) { gv_fmt(b, "%d PAS", (int)FE_LPO[v % 5]); } else gv_fmt(b, "OFF"); return; }
         if (e == FE_RV || e == FE_HF) { gv_fmt(b, v ? "ON" : "OFF"); return; }
         if (e == FE_CUT && v >= 127) { gv_fmt(b, "OUVERT"); return; }
+        if (e == FE_PAN) { if (v == 64) gv_fmt(b, "CENTRE"); else gv_fmt(b, v < 64 ? "G %d" : "D %d", (int)gv_abs(v - 64)); return; }
+        if (gu.fxt == 0u && e > FE_PAN && e != FE_NR) { gv_fmt(b, "MELODIE"); return; }
+        if (e == FE_PS) { gv_fmt(b, "%+d", (int)v - 12); return; }
+        if (e == FE_FO) { static const char *const VW[5] = {"A", "E", "I", "O", "U"}; gv_fmt(b, "%s", v ? VW[gv_clamp((v - 1) * 5 / 127, 0, 4)] : "OFF"); return; }
         gv_fmt(b, "%d%%", (int)(v * 100 / 127)); return; }
     default: gv_fmt(b, "%d%%", (int)(v * 100 / 127)); return;
     }
@@ -410,7 +431,7 @@ static void gv_knobs(uint8_t *k)
     int d = gv_isd();
     if (GV_EFP(gu.page)) {                             /* the FX of the shown track: FX LIVE's page and target follow */
         static const uint8_t TT[GV_NT] = {2, 4, 3, 5, 6, 7};
-        gu.fxpg = (uint8_t)(gu.page - GP_EFA);
+        gu.fxpg = (uint8_t)(gu.page >= GP_EFE ? 4u + gu.page - GP_EFE : gu.page - GP_EFA);
         if (d) { gu.fxt = 0; gv_fxrow = (int8_t)(gv.sel & 7); } else { gu.fxt = TT[(gv.sel - 8) % GV_NT]; gv_fxrow = -1; }
     } else gv_fxrow = -1;
     k[0] = k[1] = k[2] = k[3] = KN_NONE;
@@ -421,7 +442,7 @@ static void gv_knobs(uint8_t *k)
         K4(d ? KN_RVOL : KN_TVOL, KN_DJ, KN_SWING, gu.kp ? KN_KOCT : d ? KN_RAR : KN_TAR); break;
     case GP_LRYT: K4(KN_RVOL, KN_RAR, KN_STYLE, gu.kp ? KN_KOCT : KN_GMR); break;
     case GP_LMEL: K4(KN_TVOL, KN_TAR, KN_PITCH, gu.kp ? KN_KOCT : KN_WAVE); break;
-    case GP_LFX: case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD: K4(KN_FX0, KN_FX1, KN_FX2, KN_FX3); break;
+    case GP_LFX: case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD: case GP_EFE: case GP_EFF: case GP_EFG: K4(KN_FX0, KN_FX1, KN_FX2, KN_FX3); break;
     case GP_RYT: K4(KN_ROW, KN_RVOL, KN_RLP, KN_RRL); break;
     case GP_MEL: K4(KN_SNOTE, KN_SLEN, KN_SACC, KN_SOFF); break;
     case GP_STY: K4(KN_STYLE, KN_BPM, KN_AUTO, KN_SWING); break;
@@ -462,8 +483,8 @@ static void gv_knobs(uint8_t *k)
  * the lanes replay over 4 bars. AM_N knobs at once; FX PERF: REJOUE (pause), EFFACER. In RAM until power-off. */
 #define AM_N 6
 #define AM_LEN 64
-#define AM_NONE (-32768)
-typedef struct { uint8_t id, sel, fxt, fxpg, grp, touch; int8_t fxrow; int16_t v[AM_LEN]; } gv_am_t;
+#define AM_NONE (-128)
+typedef struct { uint8_t id, sel, fxt, fxpg, grp, touch; int8_t fxrow; int8_t v[AM_LEN]; } gv_am_t;   /* (a knob's value: -127..127) */
 static gv_am_t gv_am[AM_N];
 static uint8_t gv_am_on = 1, gv_am_last = 0xFF;
 static int gv_am_ok(uint32_t id)                      /* the knobs worth recording: the sound's and the mix's */
@@ -521,7 +542,7 @@ static void gv_am_step(uint32_t p)                    /* a new step: write the k
     for (k = 0; k < AM_N; k++) {
         gv_am_t *a = &gv_am[k];
         if (!a->id) continue;
-        if (a->touch == 1 && gv_recq) a->v[p % AM_LEN] = (int16_t)gv_am_do(a, 0, 0);
+        if (a->touch == 1 && gv_recq) a->v[p % AM_LEN] = (int8_t)gv_clamp(gv_am_do(a, 0, 0), -127, 127);
         else if (a->touch == 2) a->touch = 0;
         else if (gv_am_on && a->v[p % AM_LEN] != AM_NONE && gv_am_do(a, 0, 0) != a->v[p % AM_LEN]) { gv_am_do(a, 1, a->v[p % AM_LEN]); gu.dirty = 1; }
     }
@@ -834,7 +855,7 @@ static void gv_white(uint32_t j, int down)
         else if (j < 14u) gv.solo ^= (uint16_t)(1u << j); else if (j == 14u) { uint32_t i; for (i = 0; i < GV_NT; i++) gv_gen_mel(i); gv_say("TOUTES LES PISTES"); }
         else gv.solo = 0;
         break;
-    case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD:
+    case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD: case GP_EFE: case GP_EFF: case GP_EFG:
         if (j >= 8u) gv_fxbyp((gu.fxpg >> 1) * 8u + j - 8u);
         break;
     case GP_LFX:
@@ -924,9 +945,10 @@ static void gv_select(int32_t s)
 static void gv_go(uint32_t b)
 {
     uint32_t k, n = 0;
-    const uint8_t *L = b == B_ENV ? GV_ENVP : GV_GRP[b];
-    for (k = 0; k < (b == B_ENV ? 8u : 5u) && L[k] != 0xFF; k++) n++;
+    const uint8_t *L = b == B_ENV ? GV_ENVP : b == B_LFO ? GV_LFOP : GV_GRP[b];
+    for (k = 0; k < (b == B_ENV ? 11u : b == B_LFO ? 9u : 5u) && L[k] != 0xFF; k++) n++;
     if (!n) return;
+    if (b == B_HOME && gu.btn == b && gu.page == GP_LFX && gu.fxpg < 6u) { gu.fxpg++; gu.dirty = 1; return; }   /* FX LIVE: its next page */
     if (gu.btn == b) {
         for (k = 0; k < n && L[k] != gu.page; k++) {}
         gu.page = L[(k + 1u) % n];
@@ -935,6 +957,7 @@ static void gv_go(uint32_t b)
         gu.btn = (uint8_t)b; gu.page = L[0];
     }
     if (gu.page == GP_STY || gu.page == GP_VIS) gu.sty = gv.style;
+    if (gu.page == GP_LFX && b == B_HOME) gu.fxpg = 0;
     gu.dirty = 1;
 }
 static void gv_long(uint32_t b)
@@ -1056,10 +1079,11 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
     if ((s = panel_enc(EN_ALGO)) != 0) {
         if (gu.page == GP_LFX) {
             int32_t o = gu.fxpg;
-            gu.fxpg = (uint8_t)gv_clamp(o + (s > 0 ? 1 : -1), 0, 3);
+            gu.fxpg = (uint8_t)gv_clamp(o + (s > 0 ? 1 : -1), 0, 6);
             gu.fxd = (int8_t)(gu.fxpg >= o ? 1 : -1); gu.fxa = fm1_ms;
-            { static const char *const PT[4] = {"A : FILTRE RESO DISTO ECHO", "B : REVERB WOBBLE VITESSE VOL", "C : CHORUS ROLL SAUTS REVERSE",
-                                                "D : LOOP CRUSH GATE DEMI"}; gv_say(PT[gu.fxpg]); }
+            { static const char *const PT[7] = {"A : FILTRE RESO DISTO ECHO", "B : REVERB WOBBLE VITESSE VOL", "C : CHORUS ROLL SAUTS REVERSE",
+                                                "D : LOOP CRUSH GATE DEMI", "E : PAN SIDECHAIN TREMOLO TAPE", "F : AUTO-PAN VIBRATO PITCH RING",
+                                                "G : WAVEFOLD SATUR. VOYELLE NOISE"}; gv_say(PT[gu.fxpg]); }
         } else if (gu.page == GP_MIDI) { char l[32], v[20]; gv_midi_row(gu.mrow, s > 0 ? 1 : -1, l, v); }   /* left / right: the value */
         else if (gu.page == GP_GLO) { gu.gcur = (uint8_t)((gu.gcur & 6u) | (s > 0 ? 1u : 0u)); }
         else if (gv_live_page()) { gu.kp = s > 0; gv_say(gu.kp ? "MODE JEU : LE CLAVIER JOUE" : "MODE COUPURES"); }
@@ -1467,7 +1491,7 @@ static void gv_draw_body(void)
     case GP_LMEL:
         for (i = 0; i < 6u; i++) gv_tile((int)(8u + i), 3 + (int32_t)(i % 3u) * 79, 36 + (int32_t)(i / 3u) * 72, 76, 66, 1);
         break;
-    case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD:
+    case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD: case GP_EFE: case GP_EFF: case GP_EFG:
     case GP_LFX: {
         uint16_t tc = gv_fxtc(gu.fxt);
         int32_t sl = fm1_ms - gu.fxa < 250u ? (int32_t)(250u - (fm1_ms - gu.fxa)) * 40 / 250 * (gu.fxd ? gu.fxd : 1) : 0;
@@ -1480,8 +1504,8 @@ static void gv_draw_body(void)
         }
         G_T(4, 50, 1, GV_EFP(gu.page) ? gv_name(gv.sel) : FXT_N[gu.fxt], GV_EFP(gu.page) ? gv_col(gv.sel) : tc);
         gv_fmt(b, "PAGE %s", FXPN[gu.fxpg]);
-        G_TR(212, 50, 1, b, GC_Y);
-        for (i = 0; i < 4u; i++) G_R(216 + (int32_t)i * 6, 50, 4, 4, i == gu.fxpg ? GC_Y : GC_P2);
+        G_TR(194, 50, 1, b, GC_Y);
+        for (i = 0; i < 7u; i++) G_R(198 + (int32_t)i * 6, 50, 4, 4, i == gu.fxpg ? GC_Y : GC_P2);
         for (i = 0; i < 4u; i++) {                        /* the 4 effects, each its animation */
             uint32_t e = gu.fxpg * 4u + i, q;
             int32_t x = 4 + (int32_t)i * 59 + sl, y = 60, w = 56, h = 92, cx = x + w / 2, cy = y + 40, v = gv_fxget(e), on = gv_fxon(e);
@@ -1569,6 +1593,83 @@ static void gv_draw_body(void)
                 for (q = 0; q < 8u; q++) {
                     int32_t hh = (q & 1u) && v ? 30 * (127 - v) / 127 : 30;
                     G_R(x + 4 + (int32_t)q * 6, cy + 16 - hh, 5, hh, q == ph * 8u / 256u ? GC_Y : (q & 1u) && v ? GC_P2 : ink);
+                }
+                break;
+            case FE_PAN: {                                /* two speakers, the sound between them */
+                int32_t px = x + 8 + v * (w - 16) / 127, bob = gv_sin((ms / 3u) & 255u) * 3 / 127;
+                G_R(x + 4, cy - 12, 5, 24, v <= 64 ? ink : GC_P2); G_R(x + w - 9, cy - 12, 5, 24, v >= 64 ? ink : GC_P2);
+                G_R(x + 10, cy, w - 20, 1, GC_L); G_R(cx, cy - 3, 1, 7, GC_L);
+                cv_ring(px, cy + bob - gv_oy, 4, GC_Y); G_R(px - 1, cy + bob - 1, 3, 3, GC_Y);
+                break; }
+            case FE_SC: {                                 /* the level ducks on the kick, then comes back */
+                uint32_t age = song.playing ? song.tick - gv_hit_t[0] : 99u;
+                int32_t py = 0;
+                for (q = 0; q < (uint32_t)w - 8u; q++) {
+                    int32_t a = (int32_t)q + (int32_t)(age > 40u ? 40u : age), dk = a < 44 ? (44 - a) * v / 127 * 30 / 44 : 0, yy = cy - 14 + dk;
+                    if (q) cv_line(x + 3 + (int32_t)q, py - gv_oy, x + 4 + (int32_t)q, yy - gv_oy, ink);
+                    py = yy;
+                }
+                G_R(x + 4, cy + 20, 8, 8, gv_flash(0) ? GC_Y : GC_P2);   /* the kick */
+                break; }
+            case FE_TR: {                                 /* a wave whose height breathes an 1/8 note */
+                int32_t py = 0, dp = 127 - (int32_t)((ph * 2u & 255u) < 128u ? (ph * 2u & 255u) : 255u - (ph * 2u & 255u)) * v / 127;
+                for (q = 0; q < (uint32_t)w - 8u; q++) {
+                    int32_t yy = cy - gv_sin((q * 20u + ms / 3u) & 255u) * dp / 127 * 20 / 127;
+                    if (q) cv_line(x + 3 + (int32_t)q, py - gv_oy, x + 4 + (int32_t)q, yy - gv_oy, ink);
+                    py = yy;
+                }
+                break; }
+            case FE_TS: {                                 /* a reel: slower and slower, then still */
+                static uint32_t ang, last;
+                int32_t k2;
+                ang += (ms - last) * (uint32_t)(127 - v) / 127u; last = ms;
+                cv_ring(cx, cy - gv_oy, 16, ink); cv_ring(cx, cy - gv_oy, 4, v ? GC_Y : ink);
+                for (q = 0; q < 3u; q++) {
+                    k2 = (int32_t)((ang / 3u + q * 85u) & 255u);
+                    cv_line(cx, cy - gv_oy, cx + gv_sin((uint32_t)k2) * 15 / 127, cy - gv_sin((uint32_t)(k2 + 64) & 255u) * 15 / 127 - gv_oy, v ? GC_Y : ink);
+                }
+                if (v >= 120) G_TC(cx, y + 6, 1, "STOP", GC_R);
+                break; }
+            case FE_AP: {                                 /* the sound swings between the two speakers */
+                int32_t px = cx + gv_sin((ms * 64u / beat) & 255u) * v / 127 * (w / 2 - 10) / 127;
+                G_R(x + 4, cy - 12, 5, 24, ink); G_R(x + w - 9, cy - 12, 5, 24, ink);
+                G_R(x + 10, cy, w - 20, 1, GC_L);
+                cv_ring(px, cy - gv_oy, 4, GC_Y); G_R(px - 1, cy - 1, 3, 3, GC_Y);
+                break; }
+            case FE_VB: case FE_RM: case FE_WF: case FE_ST: {   /* a wave: wobbling, times another, folded, rounded */
+                int32_t py = 0;
+                for (q = 0; q < (uint32_t)w - 8u; q++) {
+                    uint32_t ang = (q * 9u + ms / 4u) & 255u;
+                    int32_t yy;
+                    if (e == FE_VB) ang = (ang + (uint32_t)(gv_sin((ms / 2u + q * 3u) & 255u) * v / 500)) & 255u;
+                    yy = gv_sin(ang);
+                    if (e == FE_RM) yy = yy * (127 - v + v * gv_sin((q * 40u + ms / 2u) & 255u) / 127) / 127;
+                    if (e == FE_WF && v) { yy = yy * (8 + v / 2) / 8; yy = ((yy + 127) & 511); yy = yy < 255 ? yy - 127 : 383 - yy; }
+                    if (e == FE_ST && v) { yy = yy * (32 + v) / 32; yy = gv_abs(yy) > 70 ? (yy < 0 ? -1 : 1) * (70 + (gv_abs(yy) - 70) / 4) : yy; yy = gv_clamp(yy, -110, 110); }
+                    yy = cy - yy * 22 / 127;
+                    if (q) cv_line(x + 3 + (int32_t)q, py - gv_oy, x + 4 + (int32_t)q, yy - gv_oy, e == FE_ST && v ? GC_Y : ink);
+                    py = yy;
+                }
+                break; }
+            case FE_PS: {                                 /* a scale of semitones, the mark on the one chosen */
+                int32_t sm = v - 12;
+                for (q = 0; q < 25u; q += 3u) G_R(cx - (q == 12u ? 12 : 6), cy + 24 - (int32_t)q * 2, q == 12u ? 24 : 12, 1, GC_L);
+                G_R(cx - 14, cy + 24 - v * 2 - 1, 28, 3, sm ? GC_Y : ink);
+                gv_fmt(b, "%+d", (int)sm); G_TC(cx, y + 6, 1, b, sm ? GC_Y : GC_M);
+                break; }
+            case FE_FO: {                                 /* a mouth: wide for A, round for O, its letter */
+                static const uint8_t MW[5] = {18, 16, 20, 9, 6}, MH[5] = {12, 6, 3, 10, 5};
+                static const char *const VW[5] = {"A", "E", "I", "O", "U"};
+                int32_t k2 = v ? gv_clamp((v - 1) * 5 / 127, 0, 4) : 1, mw = MW[k2], mh = v ? MH[k2] + (int32_t)((ms / 120u) & 1u) : 1;
+                G_F(cx - mw, cy - mh, mw * 2, mh * 2 + 1, ink);
+                cv_ring(cx - 9, cy - 22 - gv_oy, 2, ink); cv_ring(cx + 9, cy - 22 - gv_oy, 2, ink);
+                if (v) G_TC(cx, y + 6, 1, VW[k2], GC_Y);
+                break; }
+            case FE_NR:                                   /* noise climbing: more and higher as it goes up */
+                for (q = 0; q < 24u; q++) {
+                    uint32_t rnd = (q * 2654435761u + (ms / 60u) * 40503u) >> 8;
+                    int32_t hh = v * (int32_t)(4u + q) / 127 * (int32_t)(40u + (rnd & 31u)) / 60;
+                    if (hh > 0) G_R(x + 4 + (int32_t)q * 2, cy + 22 - hh, 1, hh, q > 17u ? GC_Y : ink);
                 }
                 break;
             default: {                                    /* DEMI-TEMPO: two wheels, half as fast */
@@ -1730,16 +1831,16 @@ static void gv_draw_body(void)
     case GP_OSC: {                                     /* the oscilloscope: the track's own sound */
         uint16_t cc = gv_col(gv.sel);
         int32_t X = 8, Y = 38, W = 224, H = 104, i, z = 0, pk = 1, py = 0;
-        uint8_t w0 = (uint8_t)(gv_scw - 255u);
+        uint8_t w0 = (uint8_t)(gv_scw - 127u);
         gv_scope_trk = (uint8_t)((gv.sel - 8) & 7);
         G_R(X, Y, W, H, RGB(0x0b, 0x0d, 0x10));
         for (i = 1; i < 8; i++) G_R(X + i * W / 8, Y, 1, H, RGB(0x1d, 0x22, 0x28));
         G_R(X, Y + H / 2, W, 1, RGB(0x1d, 0x22, 0x28));
-        for (i = 0; i < 255; i++) pk = gv_abs(gv_scope[(uint8_t)(w0 + i)]) > pk ? gv_abs(gv_scope[(uint8_t)(w0 + i)]) : pk;
-        for (i = 1; i < 120; i++) if (gv_scope[(uint8_t)(w0 + i - 1)] < 0 && gv_scope[(uint8_t)(w0 + i)] >= 0) { z = i; break; }
+        for (i = 0; i < 127; i++) pk = gv_abs(gv_scope[(w0 + i) & 127]) > pk ? gv_abs(gv_scope[(w0 + i) & 127]) : pk;
+        for (i = 1; i < 60; i++) if (gv_scope[(w0 + i - 1) & 127] < 0 && gv_scope[(w0 + i) & 127] >= 0) { z = i; break; }
         if (pk > 30 && gvv[(gv.sel - 8) & 7].on) {
             for (i = 0; i < W; i++) {
-                int32_t smp = gv_scope[(uint8_t)(w0 + z + i * (250 - z) / W)], yy = Y + H / 2 - smp * (H * 42 / 100) / pk;
+                int32_t smp = gv_scope[(w0 + z + i * (125 - z) / W) & 127], yy = Y + H / 2 - smp * (H * 42 / 100) / pk;
                 if (i) G_L2(X + i - 1, py, X + i, yy, cc);
                 py = yy;
             }
@@ -2034,8 +2135,8 @@ static int gv_ui_leds(void)
         switch (gu.page) {
         case GP_MIXR:
         case GP_LIVE: on = j < 14u ? gv_heard((int)j) : !((gv.gmute >> (j - 14u)) & 1u); break;
-        case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD:
-        case GP_LFX: on = j < 8u ? (j == gu.fxt && gu.page == GP_LFX) : gv_fxon((gu.fxpg >> 1) * 8u + j - 8u) && FE_OFF[(gu.fxpg >> 1) * 8u + j - 8u] >= 0; break;
+        case GP_EFA: case GP_EFB: case GP_EFC: case GP_EFD: case GP_EFE: case GP_EFF: case GP_EFG:
+        case GP_LFX: on = j < 8u ? (j == gu.fxt && gu.page == GP_LFX) : (gu.fxpg >> 1) * 8u + j - 8u < FE_N && gv_fxon((gu.fxpg >> 1) * 8u + j - 8u) && FE_OFF[(gu.fxpg >> 1) * 8u + j - 8u] >= 0; break;
         case GP_LRYT: on = j < 8u ? !trk[GV_ROWTRK[j]].p[P_MUTE] : (gv.solo >> (j - 8u)) & 1u; break;
         case GP_LMEL: on = j < 6u ? !gv.t[j].mute : j == 7u || j == 14u; break;
         case GP_RYT: on = gv_rt()->step[j].on || (song.playing && gv_pos == j); break;
@@ -2072,7 +2173,7 @@ static void gv_boot(void)
     gv.root = 9; gv.scale = 0; gv.prog = 1; gv.style = 0; gv.sel = 8; gv.oct = 0;
     for (i = 0; i < GV_NT; i++) {
         gv_trk_t *t = &gv.t[i];
-        t->vol = VOL[i]; t->oct = OCT[i]; t->wave = WAV[i]; t->cut = CUT[i]; t->res = RES[i];
+        t->pan = 64; t->vol = VOL[i]; t->oct = OCT[i]; t->wave = WAV[i]; t->cut = CUT[i]; t->res = RES[i];
         t->mch = (uint8_t)(i + 1u); t->mo = 0;
         t->env = 76; t->dec = 38; t->dly = DLY[i]; t->rev = REV[i]; t->lfr = 38;
         gv_mel_clear(t);

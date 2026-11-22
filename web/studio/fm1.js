@@ -59,7 +59,7 @@ function audition(d){if(!playing&&ctx&&!isD()){ctx.resume();note(ti(),d,ctx.curr
    Chaque bouton a une ou plusieurs pages : appuie encore sur le même bouton pour passer à la suivante.
    Partout : les touches du HAUT jouent la piste, les 16 du BAS changent de rôle (étiquette au-dessus),
    KNOB 1-4 = réglages affichés en bas de l'écran, SELECT = choisir · clic SELECT = action principale. */
-const GRP={HOME:['home','hryt','hmel','hfx','hmix'],SEQ:['ryt','mel'],ARP:['gsty','gvis','gryt','gmel'],FX:['fxr','fxa','fxb','fxd','fxp'],SCL:['scl'],ENV:['env','flt','lfo','osc','efa','efb','efc','efd'],LFO:['mix','lrr'],EDIT:['son','sonr','sedit','emidi'],GLO:['glo','midi'],SAVE:['bank','bkr','bkm','nom']};
+const GRP={HOME:['home','hryt','hmel','hmix','hfx'],SEQ:['ryt','mel'],ARP:['gsty','gvis','gryt','gmel'],FX:['fxr','fxa','fxb','fxd','fxp'],SCL:['scl'],ENV:['env','flt','lfo','osc','efa','efb','efc','efd','efe','eff','efg'],LFO:['mix','lrr','xfa','xfb','xfc','xfd','xfe','xff','xfg'],EDIT:['son','sonr','sedit','emidi'],GLO:['glo','midi'],SAVE:['bank','bkr','bkm','nom']};
 const grpOf=p=>Object.keys(GRP).find(b=>GRP[b].includes(p));
 const blank=n=>Array(n).fill('');
 // Actions communes
@@ -396,7 +396,7 @@ function algoTurn(dl){const m=S.algo||'pages';
   if(m==='pages'){const L=ORDER(),k=((L.indexOf(M.page)+dl)%L.length+L.length)%L.length;goPage(L[k]);const G=GRP[M.grp];toast(M.grp+' '+(G.indexOf(M.page)+1)+'/'+G.length+' · '+PAGES[M.page].t);return;}
   if(m==='bpm'){kTurn(bpmK(),dl);toast('BPM '+S.bpm);}else if(m==='dj'){const p=djK();kTurn(p,dl);toast('FILTRE DJ '+p.fmt(p.get()));}
   else if(m==='vol'){const p=volK();kTurn(p,dl);toast('VOLUME '+nameOf(M.pt)+' '+p.fmt(p.get()));}else if(m==='swing'){const p=swK();kTurn(p,dl);toast('SWING '+p.fmt(p.get()));}else turn('ALGO_RYT',dl);}
-function algoAng(){if(M.page==='hfx')return .1+(M.fxpg||0)*.27;if(LIVEP.includes(M.page))return M.kp?.85:.15;const m=S.algo||'pages';if(m==='pages'){const L=ORDER();return L.indexOf(M.page)/(L.length-1);}if(m==='bpm')return(S.bpm-60)/160;if(m==='dj'){const p=djK();return(p.get()+1)/2;}if(m==='vol')return volK().get();if(m==='swing')return(S.swing||0)/.6;return S.rhythms.length>1?S.cur/(S.rhythms.length-1):0;}
+function algoAng(){if(M.page==='hfx')return .1+(M.fxpg||0)*.13;if(LIVEP.includes(M.page))return M.kp?.85:.15;const m=S.algo||'pages';if(m==='pages'){const L=ORDER();return L.indexOf(M.page)/(L.length-1);}if(m==='bpm')return(S.bpm-60)/160;if(m==='dj'){const p=djK();return(p.get()+1)/2;}if(m==='vol')return volK().get();if(m==='swing')return(S.swing||0)/.6;return S.rhythms.length>1?S.cur/(S.rhythms.length-1):0;}
 PAGES.gvis={t:'VISU',
   knobs:()=>[bpmK(),djK(),swK(),K('AUTO RYT.',()=>Math.max(0,AUS.indexOf(S.auto||0)),v=>{S.auto=AUS[v];},0,AUS.length-1,1,v=>AUS[v]?AUS[v]+' MES':'OFF')],
   low:(j,dn)=>{if(!dn)return;if(j===0)rndRhythm();else if(j===1){S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});say('Nouvelles mélodies sur les accords');}else if(j===2)longArp();else if(j===3){$('#vary').onclick();say('Rythme varié');}else if(j===4){S.tracks.forEach((t,i)=>varyMel(i));say('Mélodies variées');}else if(j===5)toggle();},
@@ -433,26 +433,31 @@ const FXT=[['RYTHME','r'],['MÉLODIE','m'],['BASSE',0],['BASSE 2',2],['SYNTHÉ',
 /* [clé, nom, valeur coupée, choix (knob à crans)] — pages A B : le son · C D : le jeu */
 const FXE=[[['cut','FILTRE',1],['res','RÉSO',0],['dist','DISTO',0],['dly','ÉCHO',0]],[['rev','REVERB',0],['lfd','WOBBLE',0],['lfr','VITESSE',null],['vol','VOLUME',null]],
   [['cho','CHORUS',0],['rl','ROLL',0,[[0,'OFF'],[2,'×2'],[3,'×3'],[4,'×4']]],['sk','PAS SAUTÉS',0],['rv','REVERSE',0,[[0,'OFF'],[1,'ON']]]],
-  [['lp','LOOP',0,[[0,'OFF'],[1,'1 PAS'],[2,'2 PAS'],[4,'4 PAS'],[8,'8 PAS']]],['cr','BITCRUSH',0],['gt','GATE',0],['hf','DEMI-TEMPO',0,[[0,'OFF'],[1,'ON']]]]];
-const FXPN=['A','B','C','D'],FXPT=['FILTRE · RÉSO · DISTO · ÉCHO','REVERB · WOBBLE · VITESSE · VOLUME','CHORUS · ROLL · PAS SAUTÉS · REVERSE','LOOP · BITCRUSH · GATE · DEMI-TEMPO'];
+  [['lp','LOOP',0,[[0,'OFF'],[1,'1 PAS'],[2,'2 PAS'],[4,'4 PAS'],[8,'8 PAS']]],['cr','BITCRUSH',0],['gt','GATE',0],['hf','DEMI-TEMPO',0,[[0,'OFF'],[1,'ON']]]],
+  [['pan','PAN',.5],['sc','SIDECHAIN',0],['tr','TRÉMOLO',0],['ts','TAPE STOP',0]],
+  [['ap','AUTO-PAN',0],['vb','VIBRATO',0],['ps','PITCH',0,Array.from({length:25},(_,k)=>[k-12,(k>12?'+':'')+(k-12)])],['rm','RING MOD',0]],
+  [['wf','WAVEFOLD',0],['sat','SATURATION',0],['fo','VOYELLE',0],['nr','NOISE',0]]];
+const FXPN=['A','B','C','D','E','F','G'],FXPT=['FILTRE · RÉSO · DISTO · ÉCHO','REVERB · WOBBLE · VITESSE · VOLUME','CHORUS · ROLL · PAS SAUTÉS · REVERSE','LOOP · BITCRUSH · GATE · DEMI-TEMPO','PAN · SIDECHAIN · TRÉMOLO · TAPE STOP','AUTO-PAN · VIBRATO · PITCH · RING MOD','WAVEFOLD · SATURATION · VOYELLE · NOISE'];
+const vowF=v=>v<.008?'OFF':'AEIOU'[Math.min(4,Math.floor((v-.008)/.992*5))];
+const fxAll=h=>[...FXE[2*h],...(FXE[2*h+1]||[])],panF=v=>Math.abs(v-.5)<.01?'CENTRE':(v<.5?'G ':'D ')+Math.round(Math.abs(v-.5)*200);
 const ROWK=['lp','rl','rv','sk','hf'];
 const fxtC=j=>{const k=FXT[j][1];return k==='r'?COL.c:k==='m'?COL.a:trkC(8+k);};
-const fxObjs=e=>{const k=FXT[M.fxt||0][1];return k==='r'?(ROWK.includes(e)?(M.fxrow>=0?[S.rows[M.fxrow]]:S.rows):[S.dfx]):k==='m'?S.tracks:[S.tracks[k]];};
-const fxDef=(o,k)=>o[k]==null?(k==='cut'?1:k==='lfr'?.3:k==='vol'?.8:0):o[k];
+const fxObjs=e=>{const k=FXT[M.fxt||0][1];if(e==='nr')return[S];return k==='r'?(ROWK.includes(e)?(M.fxrow>=0?[S.rows[M.fxrow]]:S.rows):[S.dfx]):k==='m'?S.tracks:[S.tracks[k]];};
+const fxDef=(o,k)=>o[k]==null?(k==='cut'?1:k==='lfr'?.3:k==='vol'?.8:k==='pan'?.5:0):o[k];
 const fxGet=k=>{const L=fxObjs(k);return L.reduce((a,o)=>a+fxDef(o,k),0)/L.length;};
 function fxSetV(k,v){fxObjs(k).forEach(o=>o[k]=v);if(ROWK.includes(k)&&typeof LP!=='undefined')for(const x in LP)delete LP[x];applyParams();}
 const fxIx=e=>{const v=fxGet(e[0]);let b=0;e[3].forEach((o,i)=>{if(Math.abs(o[0]-v)<Math.abs(e[3][b][0]-v))b=i;});return b;};
-const fxK=e=>e[3]?K(e[1],()=>fxIx(e),v=>fxSetV(e[0],e[3][Math.round(v)][0]),0,e[3].length-1,1,v=>e[3][Math.round(v)][1]):K(e[1],()=>fxGet(e[0]),v=>fxSetV(e[0],v),0,1,.01,pct);
+const fxK=e=>e[3]?K(e[1],()=>fxIx(e),v=>fxSetV(e[0],e[3][Math.round(v)][0]),0,e[3].length-1,1,v=>e[3][Math.round(v)][1]):K(e[1],()=>fxGet(e[0]),v=>fxSetV(e[0],v),0,1,.01,e[0]==='pan'?panF:e[0]==='fo'?vowF:pct);
 M.byp={};
 function fxByp(e){const key=(M.fxt||0)+':'+e[0];if(e[2]==null)return say(e[1]+' : pas de coupure, règle-le au knob');
   if(M.byp[key]!=null){fxSetV(e[0],M.byp[key]);delete M.byp[key];say(e[1]+' rétabli sur '+FXT[M.fxt||0][0]);}else{M.byp[key]=fxGet(e[0]);fxSetV(e[0],e[2]);say(e[1]+' coupé sur '+FXT[M.fxt||0][0]+' (rappuie pour le rétablir)');}save();}
 PAGES.hfx={t:'FX LIVE',
   knobs:()=>{M.fxrow=-1;return FXE[M.fxpg||0].map(fxK);},
-  low:(j,dn)=>{if(!dn)return;if(j<8){M.fxt=j;say('Effets sur : '+FXT[j][0]);}else{const h=(M.fxpg||0)>>1,e=[...FXE[2*h],...FXE[2*h+1]][j-8];fxByp(e);}},
-  lab:()=>{const h=(M.fxpg||0)>>1,all=[...FXE[2*h],...FXE[2*h+1]];return{low:[...FXT.map(t=>t[0]),...all.map(e=>(M.byp[(M.fxt||0)+':'+e[0]]!=null?'↺ ':'')+e[1])],
-    on:j=>j<8?j===(M.fxt||0):all[j-8][2]!=null&&Math.abs(fxGet(all[j-8][0])-all[j-8][2])>.01,col:j=>j<8?fxtC(j):fxtC(M.fxt||0),q:j=>j>=8&&M.byp[(M.fxt||0)+':'+all[j-8][0]]!=null};},
+  low:(j,dn)=>{if(!dn)return;if(j<8){M.fxt=j;say('Effets sur : '+FXT[j][0]);}else{const h=(M.fxpg||0)>>1,e=fxAll(h)[j-8];if(e)fxByp(e);}},
+  lab:()=>{const h=(M.fxpg||0)>>1,all=fxAll(h);return{low:[...FXT.map(t=>t[0]),...all.map(e=>(M.byp[(M.fxt||0)+':'+e[0]]!=null?'↺ ':'')+e[1]),...blank(8-all.length)],
+    on:j=>j<8?j===(M.fxt||0):!!all[j-8]&&all[j-8][2]!=null&&Math.abs(fxGet(all[j-8][0])-all[j-8][2])>.01,col:j=>j<8?fxtC(j):fxtC(M.fxt||0),q:j=>j>=8&&!!all[j-8]&&M.byp[(M.fxt||0)+':'+all[j-8][0]]!=null};},
   sel:d=>{M.fxt=((M.fxt||0)+d+8)%8;toast('EFFETS SUR : '+FXT[M.fxt][0]);},click:()=>{},
-  help:[['SELECT ou touches 1-8','la cible : rythme, toute la mélodie, ou une piste (basse, basse 2, synthé, synthé 2, nappe, fx)'],['ALGORITHM','4 pages : A filtre · réso · disto · écho — B reverb · wobble · vitesse · volume — C chorus · roll · pas sautés · reverse — D loop · bitcrush · gate · demi-tempo'],['Touches 9-16','couper / rétablir les 8 effets des pages A+B (ou C+D quand tu y es)']]};
+  help:[['SELECT ou touches 1-8','la cible : rythme, toute la mélodie, ou une piste (basse, basse 2, synthé, synthé 2, nappe, fx)'],['ALGORITHM','7 pages : A filtre · réso · disto · écho — B reverb · wobble · vitesse · volume — C chorus · roll · pas sautés · reverse — D loop · bitcrush · gate · demi-tempo — E pan · sidechain · trémolo · tape stop — F auto-pan · vibrato · pitch · ring mod — G wavefold · saturation · voyelle · noise'],['Touches 9-16','couper / rétablir les 8 effets des pages A+B (ou C+D quand tu y es)']]};
 window.recFlash=(i,st,n)=>{M.rf={p:n<0?i:8+i,st,n,t:performance.now()};panelDirty=1;};
 /* PRESETS sur les pages LIVE : les sons du dossier de la piste (CLAP → le dossier Clap…), son interne compris */
 function presetSnd(d){const dr=isD(),cat=dr?ROWCAT[M.pt]:TYPCAT[trk().type],o=dr?rowO():trk();
@@ -463,11 +468,11 @@ const koK=()=>K('OCT CLAV.',()=>M.oct,v=>{M.oct=v;},-2,2,1,v=>(v>0?'+':'')+v);
 /* ENV, pages 5 à 8 : les 16 effets de FX LIVE sur la piste choisie (batterie : roll, pas sautés, reverse, loop, demi-tempo
    sur la ligne ; les autres sur toute la batterie) */
 function efSync(n){M.fxpg=n;if(isD()){M.fxt=0;M.fxrow=M.pt;}else{M.fxt=FXT.findIndex(t=>t[1]===ti());M.fxrow=-1;}}
-['efa','efb','efc','efd'].forEach((id,n)=>{PAGES[id]={t:'FX '+FXPN[n],
+['efa','efb','efc','efd','efe','eff','efg'].forEach((id,n)=>{PAGES['x'+id.slice(1)]=PAGES[id]={t:'FX '+FXPN[n],
   knobs:()=>{efSync(n);return FXE[n].map(fxK);},
-  low:(j,dn)=>{if(!dn||j<8)return;efSync(n);const h=n>>1;fxByp([...FXE[2*h],...FXE[2*h+1]][j-8]);},
-  lab:()=>{efSync(n);const h=n>>1,all=[...FXE[2*h],...FXE[2*h+1]];return{low:[...blank(8),...all.map(e=>(M.byp[(M.fxt||0)+':'+e[0]]!=null?'↺ ':'')+e[1])],
-    on:j=>j>=8&&all[j-8][2]!=null&&Math.abs(fxGet(all[j-8][0])-all[j-8][2])>.01,col:()=>trkC(M.pt)};},
+  low:(j,dn)=>{if(!dn||j<8)return;efSync(n);const h=n>>1,e=fxAll(h)[j-8];if(e)fxByp(e);},
+  lab:()=>{efSync(n);const h=n>>1,all=fxAll(h);return{low:[...blank(8),...all.map(e=>(M.byp[(M.fxt||0)+':'+e[0]]!=null?'↺ ':'')+e[1]),...blank(8-all.length)],
+    on:j=>j>=8&&!!all[j-8]&&all[j-8][2]!=null&&Math.abs(fxGet(all[j-8][0])-all[j-8][2])>.01,col:()=>trkC(M.pt)};},
   sel:d=>setPt(M.pt+d),click:()=>{},
   help:[['Knobs','les 4 effets de la page, sur la piste choisie · '+FXPT[n]],['ENV encore','page suivante (ENV, FILTRE, LFO, OSC, FX A à D)'],['Touches 9-16','couper / rétablir un effet'],['SELECT','choisir la piste']]};});
 /* HOME, page 5 : MIXEUR — les 14 faders et l'égaliseur général (graves, médiums, aigus) */
@@ -483,7 +488,11 @@ function goPage(p,keep){const P=PAGES[p];
   if(p==='son'||p==='sonr')LIBP.enter();if(p==='gsty'||p==='gvis')M.sty=Math.max(0,STY.indexOf(S.style));if(p!=='sedit')seStop();if(p==='nom'&&M.nr<0)M.nr=S.cur;if(p!=='nom'&&M.page!=='bank')M.nr=-1;if(p==='bank'&&!M.bi)M.bi=0;if(p==='ryt'||p==='mel')M.cur=Math.max(0,curStep);
   panelDirty=1;}
 // Un bouton : sa dernière page, puis la suivante à chaque nouvel appui
-function pageBtn(b){const L=GRP[b];if(M.grp===b)goPage(L[(L.indexOf(M.page)+1)%L.length]);else goPage(L[M.sub[b]||0]);}
+function pageBtn(b){const L=GRP[b];
+  /* HOME sur FX LIVE : page suivante (A..G), puis retour à LIVE ; on y arrive toujours par la page A */
+  if(b==='HOME'&&M.grp===b&&M.page==='hfx'&&(M.fxpg||0)<6){M.fxpg=(M.fxpg||0)+1;M.fxd=1;M.fxa=performance.now();panelDirty=1;toast('FX '+FXPN[M.fxpg]+' · '+FXPT[M.fxpg]);return;}
+  if(b==='HOME'&&M.grp===b&&L[(L.indexOf(M.page)+1)%L.length]==='hfx')M.fxpg=0;
+  if(M.grp===b)goPage(L[(L.indexOf(M.page)+1)%L.length]);else goPage(L[M.sub[b]||0]);}
 ['flt','lfo','osc'].forEach(p=>{PAGES[p].low=PAGES.env.low;PAGES[p].lab=PAGES.env.lab;});
 
 /* ---------- Touches ---------- */
@@ -506,7 +515,10 @@ function upKey(k,dn){if(kpOn()&&!isD()){if(dn)M.upDown.add(k);else M.upDown.dele
 function lowKey(j,dn){if(dn)M.lowDown.add(j);else M.lowDown.delete(j);if(kpOn()){if(isD())return kpKey(j%8,dn,j>=8);return kpKey(WHITE[j],dn);}page().low(j,dn);}
 function longHome(){if(isD())rndRow(M.pt);else rndTrk(ti());M.flash=performance.now();}
 // ARP maintenu : valide le style choisi (page STYLES) puis regénère le rythme et toutes les mélodies
-function longArp(){const st=M.grp==='ARP'&&(M.page==='gsty'||M.page==='gvis')&&STY[M.sty]?STY[M.sty]:S.style;setStyle(st);styleSc();randomRhythm();S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});M.sty=STY.indexOf(st);save();M.flash=performance.now();
+function longArp(){const st=M.grp==='ARP'&&(M.page==='gsty'||M.page==='gvis')&&STY[M.sty]?STY[M.sty]:S.style;setStyle(st);styleSc();randomRhythm();S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});
+  /* TRAP, DRILL : sidechain automatique (le kick creuse les basses beaucoup, le reste un peu) ; un autre style l’enlève */
+  if(/^(trap|drill)$/i.test(st)){S.tracks.forEach(t=>t.sc=t.type==='bass'?.8:.45);S.scAuto=1;}else if(S.scAuto){S.tracks.forEach(t=>t.sc=0);S.scAuto=0;}applyParams();
+  M.sty=STY.indexOf(st);save();M.flash=performance.now();
   say('🎲 Style '+st+' : '+S.bpm+' BPM · gamme '+S.scale+' · nouveau rythme et nouvelles mélodies'+(playing?' (le rythme change à la mesure)':' — PLAY pour écouter'));}
 const LONG={FX:{fn:longFx,l:()=>'↺ MAINTIENS : '+(M.grp==='FX'&&M.page!=='fxr'?PAGES[M.page].t+' À ZÉRO':'COUPER TOUS LES EFFETS')},HOME:{fn:longHome,l:()=>'🎲 MAINTIENS : '+(isD()?'NOUVEAU MOTIF ':'NOUVELLE MÉLODIE ')+nameOf(M.pt)},ARP:{fn:longArp,l:()=>'🎲 MAINTIENS : '+(M.page==='gsty'?STY[M.sty]:S.style).toUpperCase()+' · TOUT REGÉNÉRER'}};
 function btn(n,dn){
@@ -525,11 +537,11 @@ function turn(n,dl){if(!dl||!S)return;
   if(n==='MASTER'){S.mv=clamp((S.mv==null?.8:S.mv)+dl*.02,0,1);applyParams();save();toast('MASTER '+pct(S.mv));return;}
   if(n==='SELECT')return page().sel(dl);
   if(n==='PRESETS'){M.gsel=0;if(LIVEP.includes(M.page))return presetSnd(dl>0?1:-1);return setPt(M.pt+dl);}
-  if(n==='ALGORITHM'){if(M.page==='hfx'){const o=M.fxpg||0;M.fxpg=Math.max(0,Math.min(3,o+(dl>0?1:-1)));M.fxd=M.fxpg>=o?1:-1;M.fxa=performance.now();panelDirty=1;return toast('FX LIVE · PAGE '+FXPN[M.fxpg]+' : '+FXPT[M.fxpg]);}if(LIVEP.includes(M.page))return kpSet(dl>0);return algoTurn(dl);}
+  if(n==='ALGORITHM'){if(M.page==='hfx'){const o=M.fxpg||0;M.fxpg=Math.max(0,Math.min(6,o+(dl>0?1:-1)));M.fxd=M.fxpg>=o?1:-1;M.fxa=performance.now();panelDirty=1;return toast('FX LIVE · PAGE '+FXPN[M.fxpg]+' : '+FXPT[M.fxpg]);}if(LIVEP.includes(M.page))return kpSet(dl>0);return algoTurn(dl);}
   if(n==='ALGO_RYT'){const b=queued?S.rhythms.indexOf(queued):S.cur,k=(b+dl+S.rhythms.length*9)%S.rhythms.length;go(S.rhythms[k]);toast('RYTHME '+(k+1)+' · '+ab(S.rhythms[k].name,18));return;}
   const m=/^KNOB(\d)$/.exec(n);if(m){const i=m[1]-1,p=page().knobs()[i];kTurn(p,dl);amK(i,p);}}
 /* Mouvements des knobs : REC les enregistre (pages LIVE, FX, ENV, MIX, SON), ils rejouent en boucle avec ceux des effets */
-const AMP=['hmix','efa','efb','efc','efd','hfx','home','hryt','hmel','fxa','fxb','fxd','fxp','env','flt','lfo','osc','mix','lrr','son','sonr'];
+const AMP=['hmix','efa','efb','efc','efd','efe','eff','efg','xfa','xfb','xfc','xfd','xfe','xff','xfg','hfx','home','hryt','hmel','fxa','fxb','fxd','fxp','env','flt','lfo','osc','mix','lrr','son','sonr'];
 const amKey=i=>AMP.includes(M.page)?'k:'+(M.page==='hfx'?'hfx/'+(M.fxpg||0)+'/'+(M.fxt||0):M.page)+':'+M.pt+':'+i:'';
 function amK(i,p){if(!arec||!p||p.g||!p.l)return;const k=amKey(i);if(!k||aT[k])return;aT[k]=1;if(!S.am.d[k])S.am.d[k]=Array((S.am.n||4)*16).fill(null);amUI();}
 function amAt(k,fn){const[,pq,pt,i]=k.split(':'),[pg,fa,fb]=pq.split('/'),sp=M.pt,ss=S.sel,sa=M.fxpg,sb=M.fxt;M.pt=+pt;if(M.pt>=8)S.sel=M.pt-8;if(fa!=null){M.fxpg=+fa;M.fxt=+fb;}
@@ -608,7 +620,7 @@ function draw(){if(!g||!S)return;g.setTransform(DPR,0,0,DPR,0,0);g.fillStyle=COL
   const p=prg();tx(fit(S.style.toUpperCase()+' · '+NOTES[S.root].toUpperCase()+' '+S.scale.toUpperCase()+(p?' · '+chName(p[playing?cix:0]||0):''),160,9,500),4,31,COL.m,9,'left',500);
   for(let b=0;b<4;b++){const on=playing&&curStep>=0&&Math.floor(curStep/4)===b;rr(194+b*11,24,8,8,2,on?COL.c:COL.p2);}
   g.fillStyle=COL.l;g.fillRect(0,35,240,1);
-  (DRAW[M.page]||(/^ef[a-d]$/.test(M.page)?()=>{efSync('abcd'.indexOf(M.page[2]));DRAW.hfx();}:()=>{}))();
+  (DRAW[M.page]||(/^[ex]f[a-g]$/.test(M.page)?()=>{efSync('abcdefg'.indexOf(M.page[2]));DRAW.hfx();}:()=>{}))();
   if(M.rf&&performance.now()-M.rf.t<900){const f=M.rf,a=Math.min(1,2.2*(1-(performance.now()-f.t)/900)),c=trkC(f.p);g.globalAlpha=a;rr(30,150,180,22,6,'#2a0d0d',COL.r,1.5);g.fillStyle=COL.r;g.beginPath();g.arc(44,161,4+2*Math.sin(performance.now()/60),0,7);g.fill();
     tx('REC '+(f.n<0?ROWS[f.p]:nameOf(f.p)+' '+degName(f.n))+' · PAS '+(f.st+1),128,165,c,8.5,'center',900);g.globalAlpha=1;}
   // Pied : les 4 knobs de la page
@@ -628,7 +640,7 @@ function draw(){if(!g||!S)return;g.setTransform(DPR,0,0,DPR,0,0);g.fillStyle=COL
 const DRAW={
 hfx(){const T=performance.now()/1000,beat=60/S.bpm,pg=M.fxpg||0,tc=fxtC(M.fxt||0),sw=Math.min(1,(performance.now()-(M.fxa||0))/250);
   FXT.forEach((t,j)=>{const x=2+j*29.6,on=j===(M.fxt||0),c=fxtC(j);rr(x,38,27,13,3,on?c:COL.p2);tx(fit(t[0].replace('SYNTHÉ','SYN'),25,6.5),x+13.5,47,on?'#111':c,6.5,'center',800);});
-  tx('PAGE '+FXPN[pg],210,62,COL.y,8,'right',900);for(let k=0;k<4;k++){g.fillStyle=k===pg?COL.y:COL.p2;g.beginPath();g.arc(217+k*6,59,2.2,0,7);g.fill();}tx(FXT[M.fxt||0][0],6,62,tc,9,'left',900);
+  tx('PAGE '+FXPN[pg],194,62,COL.y,8,'right',900);for(let k=0;k<7;k++){g.fillStyle=k===pg?COL.y:COL.p2;g.beginPath();g.arc(201+k*6,59,2.2,0,7);g.fill();}tx(FXT[M.fxt||0][0],6,62,tc,9,'left',900);
   const cells=FXE[pg];g.save();g.translate((1-sw)*40*(M.fxd||1),0);g.globalAlpha=sw;
   cells.forEach((e,i)=>{const x=4+i*59,y=67,w=56,h=88,v=fxGet(e[0]);rr(x,y,w,h,5,COL.p);g.save();g.beginPath();g.rect(x,y,w,h);g.clip();
     const cx=x+w/2,cy=y+h/2-6,on=e[2]==null||Math.abs(v-e[2])>.01,stp=typeof curStep!=='undefined'&&curStep>=0?curStep:Math.floor(T/beat*4)%16,ph=(T/(beat/4))%1;g.globalAlpha=on?sw:.35*sw;
@@ -647,6 +659,22 @@ hfx(){const T=performance.now()/1000,beat=60/S.bpm,pg=M.fxpg||0,tc=fxtC(M.fxt||0
     else if(e[0]==='gt'){for(let k=0;k<8;k++){const bx=x+4+k*6.5,cut2=ph>.5&&k===Math.floor(ph*8)%8;const hh=k%2&&v>0?28*(1-v):28;g.fillStyle=k%2&&v>0?COL.p2:tc;g.globalAlpha=sw*(k===Math.floor(ph*8)?1:.7);g.fillRect(bx,cy+14-hh,5,hh);}}
     else if(e[0]==='hf'){const on2=v>.5,sp=on2?T*.5:T;for(let k=0;k<2;k++){g.strokeStyle=k?COL.y:tc;g.lineWidth=2;g.beginPath();g.arc(cx+(k?14:-14),cy,9,sp*5+k,sp*5+k+4.2);g.stroke();}tx(on2?'½':'1×',cx,y+16,on2?COL.y:COL.m,10,'center',900);}
     else if(e[0]==='vol'){const hk=FXT[M.fxt||0][1],hv=hk==='r'?Math.max(...[0,1,2,3,4,5,6,7].map(r=>hit('r'+r))):hk==='m'?Math.max(...[0,1,2,3,4,5].map(t=>hit('t'+t))):hit('t'+hk),lv=v*(.35+.65*Math.max(hv,.2));for(let k=0;k<10;k++){g.fillStyle=k/10<lv?(k>7?COL.r:tc):COL.p2;g.fillRect(x+16,y+h-18-k*7,w-32,5);}}
+    else if(e[0]==='pan'){const px=x+8+v*(w-16),bob=Math.sin(T*5)*3;g.globalAlpha=sw;g.fillStyle=v<=.51?tc:COL.p2;g.fillRect(x+4,cy-12,5,24);g.fillStyle=v>=.49?tc:COL.p2;g.fillRect(x+w-9,cy-12,5,24);
+      g.fillStyle=COL.l;g.fillRect(x+10,cy,w-20,1);g.fillRect(cx,cy-3,1,7);g.fillStyle=COL.y;g.beginPath();g.arc(px,cy+bob,4,0,7);g.fill();g.strokeStyle=COL.y;g.globalAlpha=.4*sw;g.beginPath();g.arc(px,cy+bob,7+Math.sin(T*5)*1.5,0,7);g.stroke();}
+    else if(e[0]==='sc'){const kh=hit('r0');g.strokeStyle=tc;g.lineWidth=2;g.beginPath();for(let k=0;k<=w-8;k++){const a=k/(w-8)+(1-kh)*.9,dk=Math.exp(-a*4)*v*30;k?g.lineTo(x+4+k,cy-14+dk):g.moveTo(x+4+k,cy-14+dk);}g.stroke();
+      g.fillStyle=kh>.5?COL.y:COL.p2;g.fillRect(x+4,cy+20,8,8);}
+    else if(e[0]==='tr'){const dp=1-v*(.5-.5*Math.cos(T/(beat/2)*Math.PI*2));g.strokeStyle=tc;g.lineWidth=2;g.beginPath();for(let k=0;k<=w-8;k++){const yy=Math.sin(k/(w-8)*4*Math.PI-T*6)*dp;k?g.lineTo(x+4+k,cy-yy*20):g.moveTo(x+4+k,cy-yy*20);}g.stroke();}
+    else if(e[0]==='ts'){M.tsA=(M.tsA||0)+(T-(M.tsT||T))*(1-v)*4;M.tsT=T;g.strokeStyle=v>0?COL.y:tc;g.lineWidth=2;g.beginPath();g.arc(cx,cy,16,0,7);g.stroke();g.beginPath();g.arc(cx,cy,4,0,7);g.stroke();
+      for(let k=0;k<3;k++){const a=M.tsA+k*2.094;g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+Math.cos(a)*15,cy+Math.sin(a)*15);g.stroke();}if(v>.94)tx('STOP',cx,y+12,COL.r,8,'center',900);}
+    else if(e[0]==='ap'){const px=cx+Math.sin(T/(beat*2)*Math.PI*2)*v*(w/2-10);g.globalAlpha=sw;g.fillStyle=tc;g.fillRect(x+4,cy-12,5,24);g.fillRect(x+w-9,cy-12,5,24);g.fillStyle=COL.l;g.fillRect(x+10,cy,w-20,1);g.fillStyle=COL.y;g.beginPath();g.arc(px,cy,4,0,7);g.fill();}
+    else if(e[0]==='vb'||e[0]==='rm'||e[0]==='wf'||e[0]==='sat'){g.strokeStyle=e[0]==='sat'&&v>0?COL.y:tc;g.lineWidth=2;g.beginPath();for(let k=0;k<=w-8;k++){const f=k/(w-8);let a=f*4*Math.PI-T*6,yy;
+        if(e[0]==='vb')a+=Math.sin(T*12+f*4)*v*1.2;yy=Math.sin(a);if(e[0]==='rm')yy*=1-v+v*Math.sin(f*22-T*9);
+        if(e[0]==='wf'&&v>0){const u=((yy*(1+v*5)+1)%4+4)%4;yy=u<2?u-1:3-u;}if(e[0]==='sat'&&v>0)yy=Math.tanh(yy*(1+v*5))/Math.tanh(1+v*5)*.9;
+        k?g.lineTo(x+4+k,cy-yy*22):g.moveTo(x+4+k,cy-yy*22);}g.stroke();}
+    else if(e[0]==='ps'){const sm=Math.round(v);g.globalAlpha=sw;g.fillStyle=COL.l;for(let k=0;k<25;k+=3)g.fillRect(cx-(k===12?12:6),cy+24-k*2,k===12?24:12,1);g.fillStyle=sm?COL.y:tc;g.fillRect(cx-14,cy+24-(sm+12)*2-1,28,3);tx((sm>0?'+':'')+sm,cx,y+12,sm?COL.y:COL.m,8,'center',900);}
+    else if(e[0]==='fo'){const k=v<.008?1:Math.min(4,Math.floor((v-.008)/.992*5)),mw=[18,16,20,9,6][k],mh=v<.008?1:[12,6,3,10,5][k]+(Math.floor(T*8)&1);g.strokeStyle=tc;g.lineWidth=2;g.beginPath();g.ellipse(cx,cy,mw,Math.max(1,mh),0,0,7);g.stroke();
+      g.beginPath();g.arc(cx-9,cy-22,2,0,7);g.stroke();g.beginPath();g.arc(cx+9,cy-22,2,0,7);g.stroke();if(v>=.008)tx('AEIOU'[k],cx,y+12,COL.y,9,'center',900);}
+    else if(e[0]==='nr'){g.globalAlpha=sw;for(let k=0;k<24;k++){const r=Math.abs(Math.sin(k*12.9898+Math.floor(T*16)*78.233)*43758.5453)%1,hh=v*(4+k)*(40+r*31)/60;g.fillStyle=k>17?COL.y:tc;if(hh>0)g.fillRect(x+4+k*2,cy+22-hh,1,hh);}}
     g.restore();g.globalAlpha=sw;tx(fit(e[1],w,8),cx,y+h+10,on?COL.t:COL.l,8,'center',800);});
   g.restore();g.globalAlpha=1;},
 fxr(){const n=FXL.length,act=FXL.filter(e=>e[1]()>.005).length;tx(act?act+' EFFET(S) ACTIF(S)':'AUCUN EFFET ACTIF',8,48,act?COL.y:COL.m,9,'left',800);tx('MAINTIENS FX = TOUT COUPER',234,48,COL.m,7.5,'right',700);
