@@ -82,7 +82,7 @@ python tools/fm1_install.py felucca.fwsc
 | **ARP** | STYLES → GÉN. RYTHME → GÉN. MÉLODIE · **maintenu 2 s** : valide le style et régénère tout |
 | **FX** | délais et reverb généraux → effets de la batterie · **maintenu 2 s** : remet les effets à zéro |
 | **SCL** | la gamme, la tonique, la suite d'accords |
-| **ENV** | ENV → FILTRE → LFO → OSC de la piste choisie |
+| **ENV** | ENV → FILTRE → LFO → OSC, puis FX A → B → C → D : les 16 effets de FX LIVE sur la piste choisie |
 | **LFO** | MIX → LOOP ROLL |
 | **EDIT** | SON → SON RÉGLAGES → ÉDITER → MIDI PISTES |
 | **GLO** | TEMPO → MIDI |

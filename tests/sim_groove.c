@@ -233,6 +233,24 @@ int main(void)
     tap_btn(B_GLO); tap_btn(B_GLO); check("GLO x2: MIDI", gu.page == GP_MIDI); shot("midi");
     tap_btn(B_SAVE); tap_btn(B_SAVE); check("SAVE x2: RYTHMES", gu.page == GP_BKR); tap_key(STEP_KEY[2]); check("RYTHMES key 3: saved", gu.rbu & 4u); shot("bkr");
     tap_btn(B_SAVE); check("SAVE x3: MELODIES", gu.page == GP_BKM); gv.sel = 8; tap_key(STEP_KEY[1]); check("MELODIES key 2: saved", gu.mbu & 2u); shot("bkm");
+    /* SELECT past the last track: TOUT, TOUT RYTHME, TOUTE MELODIE (volume and effects of the group) */
+    tap_btn(B_HOME); while (gu.page != GP_LIVE) tap_btn(B_HOME);
+    gv.sel = 13; gu.grp = 0; sim_enc(EN_SELECT, 2); run(FS / 20u); check("LIVE SELECT past FX: TOUT RYTHME", gu.grp == 2);
+    { int16_t a = trk[GV_ROWTRK[0]].p[P_LEVEL], b2 = trk[GV_ROWTRK[3]].p[P_LEVEL]; uint8_t m = gv.t[0].vol;
+      sim_enc(EN_K1, -5); run(FS / 20u);
+      check("group volume: every drum row down, the melody kept", trk[GV_ROWTRK[0]].p[P_LEVEL] < a && trk[GV_ROWTRK[3]].p[P_LEVEL] < b2 && gv.t[0].vol == m); }
+    shot("grp");
+    sim_enc(EN_SELECT, 1); run(FS / 20u); check("then TOUTE MELODIE", gu.grp == 3);
+    tap_btn(B_LFO); while (gu.page != GP_MIX) tap_btn(B_LFO);
+    { uint8_t r0 = gv.t[0].rev, r4 = gv.t[4].rev; sim_enc(EN_K4, 4); run(FS / 20u); check("MIX, the melody group: reverb up on every track", gv.t[0].rev > r0 && gv.t[4].rev >= r4); } shot("grpmix");
+    sim_enc(EN_SELECT, 1); run(FS / 20u); check("SELECT again: back to the first track", gu.grp == 0 && gv.sel == 0);
+    /* ENV pages 5-8: FX LIVE's 16 effects on the shown track */
+    gv.sel = 8; tap_btn(B_ENV); while (gu.page != GP_EFA) tap_btn(B_ENV);
+    { uint8_t c0 = gv.t[0].cut, c1 = gv.t[1].cut; sim_enc(EN_K1, -10); run(FS / 20u); check("ENV FX A on the bass: its filter only", gv.t[0].cut < c0 && gv.t[1].cut == c1); } shot("efa");
+    tap_btn(B_ENV); tap_btn(B_ENV); check("ENV x7: FX C", gu.page == GP_EFC);
+    gv.sel = 2; gu.dirty = 1; run(FS / 20u); gv.rrl[2] = 0; gv.rrl[0] = 0; sim_enc(EN_K2, 1); run(FS / 20u);
+    check("FX C on the CLAP: roll on that row only", gv.rrl[2] == 2 && gv.rrl[0] == 0); shot("efc"); gv.rrl[2] = 0;
+    tap_btn(B_ENV); tap_btn(B_ENV); check("ENV x9: back to ENV", gu.page == GP_ENV); gv.sel = 8;
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);
     check("GLO key 16: Hortator's own pages", gv_on == 0);
