@@ -441,12 +441,13 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
     int32_t s;
     uint8_t kn[4];
     (void)now;
-    if (!gu.init) { gu.init = 1; gu.page = GP_LIVE; gu.btn = B_HOME; gu.deg = 0; gu.dirty = 1; gv_boot(); }
-    gv_kp = (uint8_t)(gu.kp && gv_live_page());
     if (!gv_on) {                                     /* Hortator's pages: ENV held + ARP pressed = back to Groove */
-        if (((held >> panel.btn[B_ENV]) & 1u) && ((pressed >> panel.btn[B_ARP]) & 1u)) { gv_on = 1; gu.dirty = 1; return 1; }
-        return 0;
+        if (((held >> panel.btn[B_ENV]) & 1u) && ((pressed >> panel.btn[B_ARP]) & 1u)) { gv_on = 1; gu.dirty = 1; }
+        else return 0;
     }
+    if (!gu.init) { gu.init = 1; gu.page = GP_LIVE; gu.btn = B_HOME; gu.deg = 0; gu.dirty = 1; gv_boot(); }   /* (only once Groove
+                                                     * is on: it sets the tempo and the drums' steps) */
+    gv_kp = (uint8_t)(gu.kp && gv_live_page());
     if (gv_regen_due) {                               /* the auto-randoms the sequencer asked for (bars) */
         uint32_t r = gv_regen_due, i;
         gv_regen_due = 0;

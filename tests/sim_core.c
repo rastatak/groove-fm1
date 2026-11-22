@@ -43,7 +43,8 @@ void sim_flash_reset(void)
 #ifndef SIM_GROOVE_DEFAULT
 #define SIM_GROOVE_DEFAULT 0
 #endif
-int sim_groove = SIM_GROOVE_DEFAULT;                                      /* 1 = the Groove UI owns the panel, as on the device (Hortator's own tests: 0) */
+int sim_groove = SIM_GROOVE_DEFAULT;
+void sim_set_groove(int on) { sim_groove = on != 0; }        /* the page's machine (worklet.js): Groove; the tests: Hortator */                                      /* 1 = the Groove UI owns the panel, as on the device (Hortator's own tests: 0) */
 void sim_init(int fresh)                                 /* main.c's boot order */
 {
     gv_on = (uint8_t)sim_groove;

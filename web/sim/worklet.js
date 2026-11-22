@@ -12,6 +12,7 @@ class Fm1Processor extends AudioWorkletProcessor {
     this.queue = [];
     const { wasm, sectors } = options.processorOptions;
     Fm1Sim.create(wasm).then(sim => {
+      sim.x.sim_set_groove?.(1);                  // Groove: its own UI at power-on (Hortator's: GLO, key 16)
       const fresh = sim.boot(new Map(sectors));
       this.sim = sim;
       this.port.postMessage({ t: 'ready', fresh });

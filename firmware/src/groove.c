@@ -100,7 +100,10 @@ static int gv_ui_leds(void);
 static volatile uint8_t gv_kp;                  /* JEU on a LIVE page: every key plays the shown track */
 static volatile uint8_t gv_recq;                /* REC on: keys write into the pattern */
 static gv_voice_t gvv[GV_NT];
-static volatile uint8_t gv_on = 1;             /* the Groove UI owns the panel (else Hortator's own) */
+#ifndef GV_ON_DEFAULT
+#define GV_ON_DEFAULT 1                 /* the device: Groove at power-on (the simulator: sim_init decides) */
+#endif
+static volatile uint8_t gv_on = GV_ON_DEFAULT;             /* the Groove UI owns the panel (else Hortator's own) */
 static volatile uint8_t gv_pos, gv_bar, gv_cix; /* step 0..15, bars since PLAY, the chord playing (0..3) */
 static uint32_t gv_acc_s, gv_stepn;            /* samples into the step, its length */
 static volatile uint32_t gv_hit_req;            /* main -> ISR: drum rows to hit now (bit per row) */
@@ -432,6 +435,7 @@ static int gv_track_heard(uint32_t k)                     /* 0..7 rows, 8..13 tr
 static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_t *sr, uint32_t n)
 {
     uint32_t i, j, k, sn = gv_stepn ? gv_stepn : gv_step_len(gv_pos);
+    if (gv.magic != GV_MAGIC) return;
     for (i = 0; i < GV_NT; i++) {
         gv_voice_t *v = &gvv[i];
         const gv_trk_t *t = &gv.t[i];
@@ -562,6 +566,7 @@ static void gv_drum_roll(track_t *t)              /* after its hit: ROLL = 2..4 
 /* the block's advance (seq.c events_block: n samples of the drums' clock) */
 static void gv_tick(uint32_t n)
 {
+    if (gv.magic != GV_MAGIC) return;              /* not set up yet (gv_boot): its tracks would play degree 0 */
     if (!song.playing) { gv_acc_s = 0; gv_stepn = 0; return; }
     while (n) {
         uint32_t left;

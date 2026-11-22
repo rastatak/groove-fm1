@@ -117,24 +117,24 @@ if ! docker info >/dev/null 2>&1 && [ "$(uname)" = Darwin ]; then
     for _ in $(seq 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
 fi
 EXPORTS=_sim_init,_sim_render,_sim_frame,_sim_btn,_sim_key,_sim_enc,_sim_master,_sim_leds,_sim_key_leds,_sim_fb,_sim_audio,_sim_flash
-EXPORTS=$EXPORTS,_sim_flash_reset,_sim_flash_dirty,_sim_flash_clean,_sim_playing
+EXPORTS=$EXPORTS,_sim_set_groove,_sim_flash_reset,_sim_flash_dirty,_sim_flash_clean,_sim_playing
 EXPORTS=$EXPORTS,_lab_reset,_lab_model,_lab_param,_lab_global,_lab_step,_lab_play,_lab_hit,_lab_perf,_lab_watch,_lab_mute,_lab_motion,_lab_knob,_lab_motion_clear,_lab_select,_lab_render_mono
 EXPORTS=$EXPORTS,_lab_note,_lab_voice,_lab_grids,_lab_buf,_lab_probes,_lab_probe_count,_lab_probe_clear,_lab_probe_size
 if docker info >/dev/null 2>&1 && [ "${WASM_CLANG:-0}" != 1 ]; then
 docker run --rm -v "$PWD":/src -w /src -u "$(id -u):$(id -g)" -e EM_CACHE=/src/$OUT/emcache "$IMG" \
     emcc -O2 -sSTANDALONE_WASM --no-entry -sINITIAL_MEMORY=8MB -sSTACK_SIZE=256KB -sEXPORTED_FUNCTIONS="$EXPORTS" \
-    -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined "${DEFS[@]}" -DSIM_GROOVE_DEFAULT=1 \
+    -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined "${DEFS[@]}" \
     -I"$GEN" -I"$ROOT/firmware/src" -I"$ROOT/tests" -o "$OUT/fm1sim.wasm" "$ROOT/tests/sim_core.c"
 else
 # Groove: no Docker (GitHub's runner, a PC): plain clang to wasm32, freestanding (the sim core needs no libc but
 # string.h's few functions, tests/wasm/), linked by wasm-ld with the same exports
 WCC=${WASM_CC:-clang}
 "$WCC" --target=wasm32 -O2 -nostdlib -ffreestanding -isystem "$ROOT/tests/wasm" -Wno-unused-function \
-    -Wno-int-to-pointer-cast -Wno-macro-redefined -Wno-incompatible-library-redeclaration "${DEFS[@]}" -DSIM_GROOVE_DEFAULT=1 \
+    -Wno-int-to-pointer-cast -Wno-macro-redefined -Wno-incompatible-library-redeclaration "${DEFS[@]}" \
     -I"$GEN" -I"$ROOT/firmware/src" -I"$ROOT/tests" -c "$ROOT/tests/sim_core.c" -o "$OUT/sim_core.wasm.o"
 "$WCC" --target=wasm32 -O2 -nostdlib -ffreestanding -c "$ROOT/tests/wasm/libc.c" -o "$OUT/libc.wasm.o"
 WLD=${WASM_LD:-wasm-ld}
-"$WLD" --no-entry $(echo "$EXPORTS" | tr ',' '\n' | sed 's/^_/--export=/') -z stack-size=262144 \
+"$WLD" --no-entry $(echo "$EXPORTS" | tr ',' '\n' | sed 's/^_/--export=/') -z stack-size=1048576 --stack-first \
     --initial-memory=16777216 "$OUT/sim_core.wasm.o" "$OUT/libc.wasm.o" -o "$OUT/fm1sim.wasm"
 fi
 

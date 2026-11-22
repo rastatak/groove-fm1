@@ -135,6 +135,7 @@ static void sim_mark(uint32_t off, uint32_t n)
 #include "../firmware/src/filter.c"
 #include "../firmware/src/lfo.c"
 #include "../firmware/src/drum_core.c"
+#define GV_ON_DEFAULT 0                          /* the lab and the tests: Hortator unless sim_init is told */
 #include "../firmware/src/groove.c"           /* Groove: 6 melodic tracks and the web app's generators */
 #include "../firmware/src/slicer.c"
 #include "../firmware/src/fx.c"
