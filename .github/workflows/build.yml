@@ -19,14 +19,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Python packages, clang as cc (the simulator builds with clang)
         run: |
           pip install Pillow
           mkdir -p "$HOME/ccbin" && ln -sf "$(command -v clang)" "$HOME/ccbin/cc" && echo "$HOME/ccbin" >> "$GITHUB_PATH"
+          sudo apt-get update -qq && sudo apt-get install -y -qq lld >/dev/null   # wasm-ld: the web simulator
+          WLD=$(command -v wasm-ld || ls /usr/bin/wasm-ld-* /usr/lib/llvm-*/bin/wasm-ld 2>/dev/null | head -1)
+          echo "WASM_LD=$WLD" >> "$GITHUB_ENV"; echo "wasm-ld: $WLD"
 
-      - name: Simulator tests (Groove + Hortator, on the PC)
+      - name: Simulator (Groove + Hortator tests, then the web simulator in WebAssembly)
         run: |
-          bash tools/build_sim.sh --host-only
+          WASM_CLANG=1 bash tools/build_sim.sh
           cc -O2 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -Wno-macro-redefined \
              -Ibuild/sim/gen -Ifirmware/src -Itests '-DFELUCCA_VERSION="DRUM-groove"' \
              -o build/sim/host/sim_groove tests/sim_groove.c -lm
@@ -67,8 +74,10 @@ jobs:
       - name: Build the firmware
         run: |
           export JIELI_TOOLCHAIN="$HOME/.jieli/toolchain" AC79_SDK="$HOME/fw-AC79_AIoT_SDK"
+          export DRUM_PACKAGE=1
+          set -o pipefail
           python3 tools/build.py 2>&1 | tee build-log.txt
-          ls -la build/*.fwsc
+          ls -la build/*.fwsc build/site
 
       - name: The firmware to download
         uses: actions/upload-artifact@v4
@@ -79,6 +88,12 @@ jobs:
             build-log.txt
             INSTALLER_GROOVE.md
 
+      - name: The site (simulator + installer) for Pages
+        uses: actions/upload-artifact@v4
+        with:
+          name: groove-site
+          path: build/site
+
       - name: The log, if it failed
         if: failure()
         uses: actions/upload-artifact@v4
@@ -88,9 +103,9 @@ jobs:
             build-log.txt
             build/*.map
 
-  # The installer in the browser, with THIS firmware inside: https://<you>.github.io/<repo>/webapp/installer/
-  # (once: Settings > Pages > Source = GitHub Actions). If Pages is off, this job fails alone; the .fwsc above stays.
-  installer:
+  # The site: the simulator (https://<you>.github.io/<repo>/) and the installer with THIS firmware inside
+  # (.../webapp/installer/). Once: Settings > Pages > Source = GitHub Actions. If Pages is off, this job fails alone.
+  pages:
     needs: build
     runs-on: ubuntu-22.04
     permissions:
@@ -98,20 +113,12 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}webapp/installer/
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
       - uses: actions/download-artifact@v4
         with:
-          name: groove-firmware
-          path: fw
-      - name: Make the installer site
-        run: |
-          python3 web/make_site.py "$(ls fw/build/*.fwsc fw/*.fwsc 2>/dev/null | head -1)" "groove-0.1" _site
-          ls -R _site | head -40
+          name: groove-site
+          path: _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

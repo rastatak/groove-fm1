@@ -37,14 +37,21 @@ Dès que les fichiers sont envoyés (ou en relançant : **Actions → Build firm
 
 1. Onglet **Actions** → **Build firmware** → la ligne du haut (un rond jaune = en cours, environ 5 à 15 min).
 2. Coche verte : en bas de la page, **Artifacts → groove-firmware**. Tu télécharges un zip qui contient
-   `felucca.fwsc` : c'est le firmware Groove.
+   `felucca-UNTESTED.fwsc` : c'est le firmware Groove (« UNTESTED » parce qu'il n'a pas encore été essayé sur une vraie machine).
 3. Croix rouge : ouvre l'étape en rouge, ou télécharge l'artifact **build-log**, et envoie-moi le message
    d'erreur : je corrige.
 
 Pour relancer à la main : **Actions → Build firmware → Run workflow**. Chaque modification envoyée sur GitHub
 relance aussi la compilation.
 
-## 3. Installer sur le FM-1
+## 3. L'essayer d'abord dans le simulateur
+
+Le site publié contient un simulateur : le vrai code C de Groove compilé en WebAssembly, qui tourne dans le
+navigateur sur un FM-1 en 3D (souris, écran tactile ou clavier de l'ordinateur). Ouvre
+`https://TON-NOM.github.io/groove-fm1/`, clique l'interrupteur **Power** au-dessus de la machine, puis joue.
+Ce que tu y vois et entends, c'est ce que fera la machine (au processeur près).
+
+## 4. Installer sur le FM-1
 
 ### Le plus simple : l'installateur dans le navigateur (Chrome ou Edge)
 
@@ -62,7 +69,7 @@ pip install mido python-rtmidi
 python tools/fm1_install.py felucca.fwsc
 ```
 
-## 4. Les commandes de Groove sur la machine
+## 5. Les commandes de Groove sur la machine
 
 | | |
 |---|---|
@@ -91,7 +98,7 @@ toute la mélodie, basse, basse 2, synthé, synthé 2, nappe, fx). Les touches 9
 - C : chorus, roll ×2/×3/×4, pas sautés, reverse
 - D : loop 1-8 pas, bitcrush, gate, demi-tempo
 
-## 5. Ce que la version 0.1 ne fait pas encore
+## 6. Ce que la version 0.1 ne fait pas encore
 
 - Les mélodies et réglages Groove ne sont pas encore gardés à l'extinction : la batterie se sauve avec les
   projets d'Hortator, les mélodies sont régénérées au démarrage.
@@ -99,7 +106,7 @@ toute la mélodie, basse, basse 2, synthé, synthé 2, nappe, fx). Les touches 9
 - Pas d'animations de scènes (ville, monstre…) sur l'écran de la machine : elles sont dans la version web.
 - La charge du processeur avec 8 batteries + 6 synthés n'a pas pu être mesurée sur la vraie puce.
 
-## 6. Revenir au firmware officiel
+## 7. Revenir au firmware officiel
 
 Utilise **M-UPGRADE** de M-VAVE (<https://www.m-vave.com/download> → PC Software → M-UPGRADE) avec le firmware
 officiel du FM-1. Si le FM-1 ne répond plus du tout : voir `docs/RECOVERY.md`.
