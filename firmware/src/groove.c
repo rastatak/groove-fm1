@@ -57,6 +57,7 @@ typedef struct {                   /* a melodic track; knobs 0..127 like Hortato
     uint8_t mute, wave, oct, ftype, lfw, lfs, ar, bw;
     int8_t po;                     /* pitch, whole octaves -3..3 */
     uint8_t vol, cut, res, env, att, dec, gl, lfr, lfd, dist, dly, rev;
+    uint8_t mo, mch;               /* MIDI out (USB): 0 the inner sound, 1 MIDI only, 2 both; its channel 1..16 */
     uint8_t cho, rl, sk, rv, lp, cr, gt, hf;   /* FX LIVE pages C D: chorus, roll x2-4, skipped steps, reverse, loop
                                     * 1-8 steps, bitcrush, gate, half tempo */
     gv_step_t st[16];
@@ -72,6 +73,7 @@ typedef struct {                   /* everything Groove keeps (gv_save: flash) *
     uint8_t rowar[8];              /* auto-random per drum row, bars */
     uint8_t rrl[8], rsk[8], rrv[8], rlp[8], rhf[8];   /* FX LIVE on the drum rows: roll, skipped steps, reverse, loop,
                                     * half tempo (seq.c asks gv_drum_step) */
+    uint8_t eq[3];                 /* the general equaliser: lows, mids, highs (64 flat, 0 cut, 127 +6 dB) */
     uint8_t mf, hp, mq, xs, xd, xr;  /* the whole mix (web: FILTRE DJ): low-pass (127 open), high-pass (0 open), resonance,
                                     * disto, echo and reverb sends */
     uint8_t algo;                  /* ALGORITHM off the LIVE pages: 0 pages 1 BPM 2 FILTRE DJ 3 VOLUME 4 RYTHMES 5 SWING */
@@ -92,11 +94,14 @@ typedef struct {                   /* a voice, ISR only */
     uint32_t pinc[3];              /* the note waiting for its delay */
     uint32_t pgate;
     uint8_t pacc, pslide, pn;
+    uint8_t pnote, mnote, mon, mchn; /* MIDI out: the note waiting, the one held on the other machine, its channel */
     int32_t crs; uint32_t crh, rlc;  /* bitcrush: the held sample, its countdown; roll: samples to the next hit */
 } gv_voice_t;
 
 static gv_state_t gv;
 static uint32_t gv_step_len(uint32_t pos);
+static int gv_track_heard(uint32_t k);
+static void midi_out_event(uint32_t pkt);        /* usb_app.c: a packet into the USB MIDI out ring (from the audio ISR) */
 static volatile uint32_t gv_on_ms[6];           /* when each melodic track's last note began (the ENV page's dot) */
 static int16_t gv_scope[256];                   /* the shown track's last samples (the OSC page) */
 static volatile uint8_t gv_scw, gv_scope_trk, gv_scdec;
@@ -376,10 +381,17 @@ static void gv_note_on(uint32_t i, int deg, uint32_t gate, int acc, int slide, u
     uint32_t k, n = GV_TTYPE[i] == GT_PAD ? 3u : 1u;
     int off[3] = {0, gv_t3(), gv_t5()};
     for (k = 0; k < n; k++) v->pinc[k] = gv_inc_tab[gv_d2m(t, deg + off[k])];
+    v->pnote = (uint8_t)gv_d2m(t, deg);
     v->pgate = gate ? gate : 0xFFFFFFFFu;
     v->pacc = (uint8_t)acc; v->pslide = (uint8_t)slide; v->pn = (uint8_t)n;
     v->delay = delay ? delay : 1u;
     gv_hit_t[8u + i] = song.tick + (delay >> 8);
+}
+static void gv_midi_off(gv_voice_t *v)           /* the note held on the other machine: let go */
+{
+    if (!v->mon) return;
+    midi_out_event(0x08u | (0x80u | v->mchn) << 8 | (uint32_t)v->mnote << 16);
+    v->mon = 0;
 }
 static void gv_note_start(uint32_t i)
 {
@@ -400,8 +412,14 @@ static void gv_note_start(uint32_t i)
     v->atgt = (v->acc ? 1 << 24 : (int32_t)(0.72f * (1 << 24))) ;
     if (!legato) v->fenv = 32767;
     v->on = 1;
+    if (t->mo && gv_track_heard(8u + i)) {              /* MIDI out: the new note, then the old one off (legato there too) */
+        uint8_t was = v->mon, wn = v->mnote, wc = v->mchn;
+        v->mchn = (uint8_t)((t->mch ? t->mch - 1u : i) & 15u); v->mnote = v->pnote & 127u; v->mon = 1;
+        midi_out_event(0x09u | (0x90u | v->mchn) << 8 | (uint32_t)v->mnote << 16 | (v->acc ? 120u : 96u) << 24);
+        if (was) midi_out_event(0x08u | (0x80u | wc) << 8 | (uint32_t)wn << 16);
+    } else gv_midi_off(v);
 }
-static void gv_note_off(uint32_t i) { gvv[i].gate = 0; gvv[i].delay = 0; }
+static void gv_note_off(uint32_t i) { gvv[i].gate = 0; gvv[i].delay = 0; gv_midi_off(&gvv[i]); }
 
 static void gv_init_tables(void) {}
 /* cutoff (0..127 << 8, + envelope and LFO) -> SVF coefficient Q15 ~ 2 pi fc / fs, fc 40 Hz .. ~12 kHz, exponential */
@@ -467,7 +485,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
         if (!v->on && !v->delay) continue;
         lfo = t->lfd ? gv_lfo(v, t, n) : 0;
         q = 32767 - t->res * 240;                     /* damping: less = more resonance */
-        vol = gv_track_heard(8u + i) ? t->vol * 200 : 0;   /* x VOICE_FS-ish level */
+        vol = gv_track_heard(8u + i) && t->mo != 1u ? t->vol * 200 : 0;   /* (MIDI only: silent here) */   /* x VOICE_FS-ish level */
         dly = t->dly * 258; rev = t->rev * 258;
         drive = t->dist;
         cho = t->cho * 258; gtv = 127 - t->gt;
@@ -486,7 +504,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
                 x += gv_osc(v->ph[k] + (k ? k * 0x1234567u : 0u), t->wave) / (int32_t)(v->nosc == 3u ? 3 : 1);
             }
             if (v->gate) { if (v->gate != 0xFFFFFFFFu) v->gate--; }
-            else v->atgt = 0;
+            else { v->atgt = 0; if (v->mon) gv_midi_off(v); }
             {   /* amplitude: attack to the target, release when the gate closes */
                 int32_t r = v->atgt > v->amp ? (ty == GT_PAD ? 9 + t->att / 12 : 4 + t->att / 14) : (ty == GT_PAD ? 12 : 9);
                 v->amp += (v->atgt - v->amp) >> r;
@@ -523,22 +541,39 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
 
 /* the whole mix (fx.c, after every track): disto, the DJ filter (low-pass then high-pass, with resonance), then the
  * echo and reverb sends of everything (the web app's master effects). Integer SVFs, one per side. */
-static int32_t gvm_lp[2], gvm_bp[2], gvm_hl[2], gvm_hb[2];
-static void gv_master(int32_t *ml, int32_t *mr, int32_t *sd, int32_t *sr, uint32_t n)
+static int32_t gvm_lp[2], gvm_bp[2], gvm_hl[2], gvm_hb[2], gvm_e1[2], gvm_e2[2];
+static void gv_master(int32_t *ml, int32_t *mr, int32_t *sd, int32_t *sr, uint32_t n)   /* before the buses: disto, sends */
 {
     uint32_t j, c;
-    int32_t fl, fh, q, xs, xd, xr;
-    if (gv.magic != GV_MAGIC) return;
-    if (gv.mf >= 127u && !gv.hp && !gv.xs && !gv.xd && !gv.xr) return;
-    fl = gv.mf >= 127u ? 0 : gv_fcoef((int32_t)gv.mf << 8);
-    fh = gv.hp ? gv_fcoef((int32_t)gv.hp << 8) : 0;
-    q = 32767 - gv.mq * 230;
+    int32_t xs, xd, xr;
+    if (gv.magic != GV_MAGIC || (!gv.xs && !gv.xd && !gv.xr)) return;
     xs = gv.xs; xd = gv.xd * 200; xr = gv.xr * 200;
     for (c = 0; c < 2u; c++) {
         int32_t *m = c ? mr : ml;
         for (j = 0; j < n; j++) {
-            int32_t x = m[j] >> 6, hp;                 /* the mix runs ~2^21: down to a voice's range for the SVF */
+            int32_t x = m[j] >> 6;                     /* the mix runs ~2^21: down to a voice's range */
             if (xs) { x = x * (1 + xs / 12); x = x > 24000 ? 24000 + (x - 24000) / 6 : x < -24000 ? -24000 + (x + 24000) / 6 : x; }
+            x = gv_clamp(x, -65000, 65000);
+            m[j] = x << 6;
+            if (xd) sd[j] += (x * xd) >> 11;
+            if (xr) sr[j] += (x * xr) >> 11;
+        }
+    }
+}
+/* after the buses (fx.c): the echo and the reverb join the mix, then the DJ filter and the 3-band equaliser on all of it */
+static void gv_master_post(int32_t *ml, int32_t *mr, int32_t *wet, uint32_t n)
+{
+    uint32_t j, c;
+    int32_t fl, fh, q;
+    int eqon = gv.eq[0] != 64u || gv.eq[1] != 64u || gv.eq[2] != 64u;
+    if (gv.magic != GV_MAGIC || (gv.mf >= 127u && !gv.hp && !eqon)) return;
+    fl = gv.mf >= 127u ? 0 : gv_fcoef((int32_t)gv.mf << 8);
+    fh = gv.hp ? gv_fcoef((int32_t)gv.hp << 8) : 0;
+    q = 32767 - gv.mq * 230;
+    for (c = 0; c < 2u; c++) {
+        int32_t *m = c ? mr : ml;
+        for (j = 0; j < n; j++) {
+            int32_t x = (m[j] + wet[j]) >> 6, hp;
             if (fl) {
                 gvm_lp[c] += (fl * gvm_bp[c]) >> 15;
                 hp = x - gvm_lp[c] - ((q * gvm_bp[c]) >> 15);
@@ -553,12 +588,17 @@ static void gv_master(int32_t *ml, int32_t *mr, int32_t *sd, int32_t *sr, uint32
                 gvm_hl[c] = gv_clamp(gvm_hl[c], -65000, 65000); gvm_hb[c] = gv_clamp(gvm_hb[c], -65000, 65000);
                 x = hp;
             }
-            x = gv_clamp(x, -65000, 65000);
-            m[j] = x << 6;
-            if (xd) sd[j] += (x * xd) >> 10;
-            if (xr) sr[j] += (x * xr) >> 10;
+            if (eqon) {                                /* 3 bands: under ~250 Hz, over ~3 kHz, what is between */
+                int32_t lo, hi, mid;
+                gvm_e1[c] += (1167 * (x - gvm_e1[c])) >> 15;
+                gvm_e2[c] += (11400 * (x - gvm_e2[c])) >> 15;
+                lo = gvm_e1[c]; hi = x - gvm_e2[c]; mid = x - lo - hi;
+                x = (lo * gv.eq[0] + mid * gv.eq[1] + hi * gv.eq[2]) >> 6;
+            }
+            m[j] = gv_clamp(x, -65000, 65000) << 6;
         }
     }
+    for (j = 0; j < n; j++) wet[j] = 0;               /* (it is in the mix now) */
 }
 
 /* ------------------------------------------------------------------ sequencer (audio ISR) --- */
@@ -660,7 +700,7 @@ static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left
         uint32_t w;
         for (w = 0; w < 16u && GV_WKEY[w] != key; w++) {}
         if (!down) return;
-        if (w < 16u) { uint32_t r = w & 7u; { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_live_hit = 0; } gv_hit_t[r] = song.tick;
+        if (w < 16u || gv_kp == 2u) { uint32_t r = gv_kp == 2u ? (uint32_t)gv.sel & 7u : w & 7u; { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_live_hit = 0; } gv_hit_t[r] = song.tick;
             if (gv_recq && song.playing) trk[GV_ROWTRK[r]].step[gv_pos & 15u].on = 1; }
         return;
     }

@@ -954,6 +954,7 @@ static void mix_block(int32_t *out, uint32_t n)
 #endif
     if (dpp.side)
         dly_side_add(mix_l, n);                         /* the delay's PING-PONG: its left */
+    gv_master_post(mix_l, mix_r, wet, n);               /* Groove: the DJ filter and the equaliser, on the effects too */
     for (i = 0; i < n; i++) {                           /* the master level */
         mix_l[i] = (clamp((mix_l[i] + wet[i]) >> 2, -524287, 524287) * mg) >> 10;
         mix_r[i] = (clamp((mix_r[i] + wet[i]) >> 2, -524287, 524287) * mg) >> 10;   /* fits Q12 */

@@ -161,7 +161,7 @@ int main(void)
     check("FILTRE DJ left: the low-pass closes", gv.mf < 60 && gv.hp == 0);
     r1 = rms_of(FS);
     printf("info  rms open %.4f, DJ low-pass %.4f\n", r0, r1);
-    check("the DJ filter takes the highs off (quieter)", r1 < r0);
+    check("the DJ filter takes the highs off (quieter)", r1 < r0 * 0.9);
     sim_enc(EN_K2, 120); run(FS / 20u);
     check("FILTRE DJ right: the high-pass opens", gv.hp > 0 && gv.mf == 127);
     sim_enc(EN_K2, -200); sim_enc(EN_K2, 64); run(FS / 20u);
@@ -251,6 +251,60 @@ int main(void)
     gv.sel = 2; gu.dirty = 1; run(FS / 20u); gv.rrl[2] = 0; gv.rrl[0] = 0; sim_enc(EN_K2, 1); run(FS / 20u);
     check("FX C on the CLAP: roll on that row only", gv.rrl[2] == 2 && gv.rrl[0] == 0); shot("efc"); gv.rrl[2] = 0;
     tap_btn(B_ENV); tap_btn(B_ENV); check("ENV x9: back to ENV", gu.page == GP_ENV); gv.sel = 8;
+    /* MIDI PISTES: a melodic track's channel and output; its notes go out on USB MIDI */
+    gv.sel = 8; tap_btn(B_EDIT); while (gu.page != GP_EMIDI) tap_btn(B_EDIT);
+    sim_enc(EN_K1, 4); sim_enc(EN_K2, 1); run(FS / 20u);
+    check("MIDI PISTES on the bass: channel 5, MIDI only", gv.t[0].mch == 5 && gv.t[0].mo == 1);
+    if (!sim_playing()) tap_btn(B_PLAY);
+    { uint32_t w0 = mo_w, k, on = 0, off = 0, chok = 1; usb.config = 1; run(FS * 2u);
+      for (k = w0; k != mo_w; k++) { uint32_t pk = midi_out_q[k % MQ], st = (pk >> 8) & 0xF0u; if (st == 0x90u) { on++; if (((pk >> 8) & 15u) != 4u) chok = 0; } else if (st == 0x80u) off++; }
+      printf("info  MIDI out: %u note on, %u note off\n", (unsigned)on, (unsigned)off);
+      check("the bass's notes leave on USB MIDI, channel 5, each with its note off", on > 2u && chok && off + 1u >= on); }
+    shot("emidi2"); gv.t[0].mo = 0;
+    /* REC: a knob's moves are written step by step, then replay in a loop */
+    gv.sel = 8; tap_btn(B_ENV); while (gu.page != GP_FLT) tap_btn(B_ENV);
+    if (!sim_playing()) tap_btn(B_PLAY);
+    gv.t[0].cut = 100; if (!gv_recq) tap_btn(B_REC);
+    { uint32_t k; for (k = 0; k < 40u; k++) { sim_enc(EN_K1, -1); run(FS / 30u); } }
+    check("REC + a knob turned: a lane for it", gv_am_find(KN_CUT, 0) != 0);
+    tap_btn(B_REC);
+    { uint8_t mn = 255, mx = 0; uint32_t k; for (k = 0; k < 80u; k++) { run(FS / 10u); if (gv.t[0].cut < mn) mn = gv.t[0].cut; if (gv.t[0].cut > mx) mx = gv.t[0].cut; }
+      printf("info  replayed cutoff %u..%u\n", (unsigned)mn, (unsigned)mx);
+      check("REC off: the cutoff replays its move in a loop", mx - mn > 15); }
+    shot("amrec");
+    gv_am_clear(); check("EFFACER: no lane left", !gv_am_any());
+    /* HOME x5: the mixer and the general equaliser */
+    tap_btn(B_HOME); while (gu.page != GP_MIXR) tap_btn(B_HOME);
+    check("HOME x5: MIXEUR", gu.page == GP_MIXR);
+    if (!sim_playing()) tap_btn(B_PLAY);
+    { double fl, cut; run(FS); fl = rms_of(FS * 2u); sim_enc(EN_K2, -64); sim_enc(EN_K3, -64); run(FS / 2u); cut = rms_of(FS * 2u);
+      printf("info  rms flat %.4f, lows and mids cut %.4f\n", fl, cut);
+      check("EQ: lows and mids cut = quieter", gv.eq[0] == 0 && cut < fl * 0.85); shot("mixr");
+      gv.eq[0] = gv.eq[1] = 64; }
+    gv.sel = 0; gu.grp = 0; { int16_t l = trk[GV_ROWTRK[0]].p[P_LEVEL]; sim_enc(EN_K1, -6); run(FS / 20u); check("MIXEUR knob 1: the kick's fader", trk[GV_ROWTRK[0]].p[P_LEVEL] < l); }
+    /* GLO MIDI: the list (SELECT the row, PRESETS the value) */
+    tap_btn(B_GLO); while (gu.page != GP_MIDI) tap_btn(B_GLO);
+    gu.mrow = 0; sim_enc(EN_SELECT, 6); run(FS / 20u); check("MIDI: SELECT goes down the list", gu.mrow == 6);
+    { uint8_t c = gv.t[1].mch; sim_enc(EN_PRESET, 1); run(FS / 20u); check("row SYNTHE CANAL, PRESETS: its channel", gv.t[1].mch == c + 1); gv.t[1].mch = c; }
+    shot("midi2");
+    /* REC on the page shown: MIX's delay knob too */
+    gv.sel = 9; gu.grp = 0; tap_btn(B_LFO); while (gu.page != GP_MIX) tap_btn(B_LFO);
+    if (!gv_recq) tap_btn(B_REC); sim_enc(EN_K3, 3); run(FS / 4u); check("REC on MIX: the delay knob gets its lane", gv_am_find(KN_DLY, 0) != 0); tap_btn(B_REC); gv_am_clear();
+    /* EDIT SON: SELECT picks in the list, the keyboard plays the sound */
+    gv.sel = 2; gu.grp = 0; tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT);
+    { uint16_t pr = trk[GV_ROWTRK[2]].pre; sim_enc(EN_SELECT, 1); run(FS / 20u); check("SON on the CLAP: SELECT loads the next clap", trk[GV_ROWTRK[2]].pre != pr && gv_infam(2, (uint32_t)trk[GV_ROWTRK[2]].p[P_MODEL])); }
+    if (sim_playing()) tap_btn(B_PLAY);
+    run(FS * 2u); { double q0 = rms_of(FS / 4u), q1; sim_key(5, 1); q1 = rms_of(FS / 4u); sim_key(5, 0); printf("info  SON: silence %.4f, a key %.4f\n", q0, q1); check("SON: any key plays the row's sound", q1 > q0 + 0.003); }
+    shot("sond2"); gv.sel = 8; sim_enc(EN_SELECT, 1); run(FS / 20u); shot("sonm2");
+    { double q1; sim_key(STEP_KEY[4], 1); q1 = rms_of(FS / 4u); sim_key(STEP_KEY[4], 0); check("SON on the bass: a white key plays it", q1 > 0.003); }
+    /* OCT- = keep, OCT+ = back (EDIT SON, STYLES) */
+    tap_btn(B_HOME); gv.sel = 2; tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT); run(FS / 20u);
+    { uint16_t pr = trk[GV_ROWTRK[2]].pre; int16_t md = trk[GV_ROWTRK[2]].p[P_MODEL];
+      sim_enc(EN_SELECT, 3); run(FS / 20u); check("SON: browsing loads another clap", trk[GV_ROWTRK[2]].pre != pr);
+      tap_btn(B_OCTUP); check("OCT+: the sound it had is back, the page before too", trk[GV_ROWTRK[2]].pre == pr && trk[GV_ROWTRK[2]].p[P_MODEL] == md && gu.page != GP_SON);
+      tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT); run(FS / 20u); sim_enc(EN_SELECT, 2); run(FS / 20u); pr = trk[GV_ROWTRK[2]].pre;
+      tap_btn(B_OCTDN); tap_btn(B_OCTUP); check("OCT- then OCT+: the validated sound stays", trk[GV_ROWTRK[2]].pre == pr); }
+    tap_btn(B_ARP); while (gu.page != GP_STY) tap_btn(B_ARP); { uint8_t st = gv.style; sim_enc(EN_SELECT, 2); run(FS / 20u); tap_btn(B_OCTDN); check("STYLES: OCT- takes the style shown", gv.style != st && gv.style == gu.sty); }
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);
     check("GLO key 16: Hortator's own pages", gv_on == 0);

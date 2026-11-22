@@ -41,7 +41,7 @@ const bpmK=()=>K('BPM',()=>S.bpm,v=>{S.bpm=v;applyParams();},60,220,1);
 const swK=()=>K('SWING',()=>S.swing||0,v=>{S.swing=v;},0,.6,.01,pct);
 /* SELECT après la dernière piste (LIVE, MIX) : TOUT, TOUT LE RYTHME, TOUTE LA MÉLODIE — un knob bouge tous les membres du même écart */
 const GSN=['','TOUT','TOUT LE RYTHME','TOUTE LA MÉLODIE'],GSC=()=>M.gsel===2?COL.c:M.gsel===3?COL.a:COL.t;
-const gOn=()=>!!M.gsel&&(M.page==='home'||M.page==='mix');
+const gOn=()=>!!M.gsel&&(M.page==='home'||M.page==='mix'||M.page==='hmix');
 const gHas=p=>M.gsel===1||(M.gsel===2?p<8:p>=8);
 const gObjs=k=>[...(M.gsel!==3?(k==='vol'?S.rows:[S.dfx]):[]),...(M.gsel!==2?S.tracks:[])];
 const gK=(l,k)=>K(l,()=>{const L=gObjs(k);return L.reduce((a,o)=>a+(+o[k]||0),0)/L.length;},v=>{const L=gObjs(k),d=v-L.reduce((a,o)=>a+(+o[k]||0),0)/L.length;L.forEach(o=>o[k]=clamp((+o[k]||0)+d,0,1));applyParams();if(typeof renderRhythm==='function')renderRhythm();},0,1,.01,pct);
@@ -59,7 +59,7 @@ function audition(d){if(!playing&&ctx&&!isD()){ctx.resume();note(ti(),d,ctx.curr
    Chaque bouton a une ou plusieurs pages : appuie encore sur le même bouton pour passer à la suivante.
    Partout : les touches du HAUT jouent la piste, les 16 du BAS changent de rôle (étiquette au-dessus),
    KNOB 1-4 = réglages affichés en bas de l'écran, SELECT = choisir · clic SELECT = action principale. */
-const GRP={HOME:['home','hryt','hmel','hfx'],SEQ:['ryt','mel'],ARP:['gsty','gvis','gryt','gmel'],FX:['fxr','fxa','fxb','fxd','fxp'],SCL:['scl'],ENV:['env','flt','lfo','osc','efa','efb','efc','efd'],LFO:['mix','lrr'],EDIT:['son','sonr','sedit','emidi'],GLO:['glo','midi'],SAVE:['bank','bkr','bkm','nom']};
+const GRP={HOME:['home','hryt','hmel','hfx','hmix'],SEQ:['ryt','mel'],ARP:['gsty','gvis','gryt','gmel'],FX:['fxr','fxa','fxb','fxd','fxp'],SCL:['scl'],ENV:['env','flt','lfo','osc','efa','efb','efc','efd'],LFO:['mix','lrr'],EDIT:['son','sonr','sedit','emidi'],GLO:['glo','midi'],SAVE:['bank','bkr','bkm','nom']};
 const grpOf=p=>Object.keys(GRP).find(b=>GRP[b].includes(p));
 const blank=n=>Array(n).fill('');
 // Actions communes
@@ -470,6 +470,12 @@ function efSync(n){M.fxpg=n;if(isD()){M.fxt=0;M.fxrow=M.pt;}else{M.fxt=FXT.findI
     on:j=>j>=8&&all[j-8][2]!=null&&Math.abs(fxGet(all[j-8][0])-all[j-8][2])>.01,col:()=>trkC(M.pt)};},
   sel:d=>setPt(M.pt+d),click:()=>{},
   help:[['Knobs','les 4 effets de la page, sur la piste choisie · '+FXPT[n]],['ENV encore','page suivante (ENV, FILTRE, LFO, OSC, FX A à D)'],['Touches 9-16','couper / rétablir un effet'],['SELECT','choisir la piste']]};});
+/* HOME, page 5 : MIXEUR — les 14 faders et l'égaliseur général (graves, médiums, aigus) */
+const eqK=(i,l)=>K(l,()=>(S.eq||(S.eq=[.5,.5,.5]))[i],v=>{(S.eq||(S.eq=[.5,.5,.5]))[i]=v;applyParams();},0,1,.01,v=>{const d=Math.round((v-.5)*24);return(d>0?'+':'')+d+' dB';});
+PAGES.hmix={t:'MIXEUR',
+  knobs:()=>[M.gsel?gK('VOLUME','vol'):volK(),eqK(0,'GRAVES'),eqK(1,'MÉDIUMS'),eqK(2,'AIGUS')],
+  low:(j,dn)=>PAGES.home.low(j,dn),lab:()=>PAGES.home.lab(),sel:d=>selG(d),click:()=>{},
+  help:[['Faders','le volume des 14 pistes · SELECT choisit la piste ou un groupe (TOUT, TOUT LE RYTHME, TOUTE LA MÉLODIE) · KNOB 1 = son volume'],['Knobs 2-4','égaliseur général : graves, médiums, aigus (±12 dB)'],['Touches du bas','couper / relancer les pistes (15 tout le rythme, 16 toute la mélodie)'],['OCT- / OCT+','couper tout le rythme / toute la mélodie']]};
 const page=()=>PAGES[M.page];
 function goPage(p,keep){const P=PAGES[p];
   if(P.sc==='r'&&!isD())M.pt=M.lastRow;if(P.sc==='t'&&isD()){M.pt=8+M.lastTrk;S.sel=M.lastTrk;}
@@ -511,7 +517,9 @@ function btn(n,dn){
   if(n==='PLAY'){toggle();return;}
   if(n==='REC'){if(rec||arec){if(rec)$('#rec').onclick();if(arec)amRec();say('REC coupé : tes mouvements rejouent en boucle (FX : REJOUE / EFFACER)');}
     else{$('#rec').onclick();amRec();say('REC : les notes jouées s’écrivent dans '+nameOf(M.pt)+' et les knobs tournés sont enregistrés en boucle');}return;}
-  if((n==='OCT-'||n==='OCT+')&&(LIVEP.includes(M.page)||M.page==='hfx')){muteGrp(n==='OCT-'?'r':'t');panelDirty=1;return;}
+  if((n==='OCT-'||n==='OCT+')&&(M.page==='son'||M.page==='sonr')){page().low(n==='OCT-'?2:0,true);panelDirty=1;return;}   /* OCT- = ✓ choisir · OCT+ = ◀ retour */
+  if((n==='OCT-'||n==='OCT+')&&(M.page==='gsty'||M.page==='gvis')){if(n==='OCT-')longArp();else{M.sty=Math.max(0,STY.indexOf(S.style));say('Retour au style en cours');}panelDirty=1;return;}
+  if((n==='OCT-'||n==='OCT+')&&(LIVEP.includes(M.page)||M.page==='hfx'||M.page==='hmix')){muteGrp(n==='OCT-'?'r':'t');panelDirty=1;return;}
   if(n==='OCT-'||n==='OCT+'){M.oct=clamp(M.oct+(n==='OCT+'?1:-1),-2,2);toast('OCTAVE CLAVIER '+(M.oct>0?'+':'')+M.oct);}}
 function turn(n,dl){if(!dl||!S)return;
   if(n==='MASTER'){S.mv=clamp((S.mv==null?.8:S.mv)+dl*.02,0,1);applyParams();save();toast('MASTER '+pct(S.mv));return;}
@@ -521,7 +529,7 @@ function turn(n,dl){if(!dl||!S)return;
   if(n==='ALGO_RYT'){const b=queued?S.rhythms.indexOf(queued):S.cur,k=(b+dl+S.rhythms.length*9)%S.rhythms.length;go(S.rhythms[k]);toast('RYTHME '+(k+1)+' · '+ab(S.rhythms[k].name,18));return;}
   const m=/^KNOB(\d)$/.exec(n);if(m){const i=m[1]-1,p=page().knobs()[i];kTurn(p,dl);amK(i,p);}}
 /* Mouvements des knobs : REC les enregistre (pages LIVE, FX, ENV, MIX, SON), ils rejouent en boucle avec ceux des effets */
-const AMP=['efa','efb','efc','efd','hfx','home','hryt','hmel','fxa','fxb','fxd','fxp','env','flt','lfo','osc','mix','lrr','son','sonr'];
+const AMP=['hmix','efa','efb','efc','efd','hfx','home','hryt','hmel','fxa','fxb','fxd','fxp','env','flt','lfo','osc','mix','lrr','son','sonr'];
 const amKey=i=>AMP.includes(M.page)?'k:'+(M.page==='hfx'?'hfx/'+(M.fxpg||0)+'/'+(M.fxt||0):M.page)+':'+M.pt+':'+i:'';
 function amK(i,p){if(!arec||!p||p.g||!p.l)return;const k=amKey(i);if(!k||aT[k])return;aT[k]=1;if(!S.am.d[k])S.am.d[k]=Array((S.am.n||4)*16).fill(null);amUI();}
 function amAt(k,fn){const[,pq,pt,i]=k.split(':'),[pg,fa,fb]=pq.split('/'),sp=M.pt,ss=S.sel,sa=M.fxpg,sb=M.fxt;M.pt=+pt;if(M.pt>=8)S.sel=M.pt-8;if(fa!=null){M.fxpg=+fa;M.fxt=+fb;}
@@ -540,7 +548,7 @@ window.fm1Ext={
 /* ---------- Le FM-1 virtuel (DOM) ---------- */
 let cv,g,panelDirty=1,keySig='',knobSig='',DPR=1;
 const KN=['MASTER','SELECT','PRESETS','ALGORITHM'],KR=['KNOB1','KNOB2','KNOB3','KNOB4'],B1=['FX','SCL','ENV','LFO','EDIT','GLO'],B2=['HOME','SAVE','ARP','SEQ','PLAY','REC'];
-const BSUB={HOME:'LIVE ×4',SEQ:'RYT/MÉL',ARP:'STYLE ×4',FX:'FX ×5',SCL:'GAMME',ENV:'ENV ×8',LFO:'MIX ×2',EDIT:'SON ×4',GLO:'TEMPO/MIDI',SAVE:'BANQUE ×4'};
+const BSUB={HOME:'LIVE ×5',SEQ:'RYT/MÉL',ARP:'STYLE ×4',FX:'FX ×5',SCL:'GAMME',ENV:'ENV ×8',LFO:'MIX ×2',EDIT:'SON ×4',GLO:'TEMPO/MIDI',SAVE:'BANQUE ×4'};
 // Raccourcis du clavier de l'ordinateur (positions physiques, valables en AZERTY comme en QWERTY)
 const KC_UP=['KeyQ','KeyW','KeyE','KeyR','KeyT','KeyY','KeyU','KeyI','KeyO','KeyP','BracketLeft'];
 const KC_LOW=['KeyA','KeyS','KeyD','KeyF','KeyG','KeyH','KeyJ','KeyK','KeyZ','KeyX','KeyC','KeyV','KeyB','KeyN','KeyM','Comma'];
@@ -889,3 +897,13 @@ function fm1Init(){fm1Build();fm1Bind();M.pt=8+(S.sel||0);
   if(wantLearn)setTimeout(learnStart,300);
   loop();}
 if(typeof S!=='undefined'&&S)fm1Init();else window.addEventListener('groove-ready',fm1Init,{once:true});
+
+DRAW.hmix=function(){const q=S.eq||[.5,.5,.5],AB=['KIC','SNA','CLA','HHF','HHO','PER','LOW','RIM','BAS','SYN','BA2','SY2','NAP','FX'];
+  tx('EQ',4,47,COL.m,8,'left',800);rr(20,37,216,20,3,COL.p);g.strokeStyle=COL.p2;g.beginPath();g.moveTo(20,47);g.lineTo(236,47);g.stroke();
+  g.strokeStyle=COL.y;g.lineWidth=2;g.beginPath();for(let k=0;k<=216;k++){const f=k/216,a=f<.25?q[0]:f<.5?q[0]+(q[1]-q[0])*(f-.25)*4:f<.75?q[1]+(q[2]-q[1])*(f-.5)*4:q[2],y=47-(a-.5)*17;k?g.lineTo(20+k,y):g.moveTo(20+k,y);}g.stroke();
+  for(let i=0;i<14;i++){const x=3+i*16.9,dr=i<8,o=dr?S.rows[i]:S.tracks[i-8],lv=o.vol==null?.8:o.vol,h=lv*94,au=!o.mute&&!S.gm[dr?'r':'t'],c=trkC(i),sel=gOn()?gHas(i):i===M.pt,hv=hit((dr?'r':'t')+(dr?i:i-8));
+    rr(x,60,14,97,3,COL.p);g.fillStyle=au?c:COL.l;g.globalAlpha=au?.45+.55*Math.min(1,hv):1;g.fillRect(x+4,61+94-h,6,h);g.globalAlpha=1;
+    if(au&&hv>.5){g.globalAlpha=.35;g.fillStyle=c;g.fillRect(x+1,61+94-h,12,h);g.globalAlpha=1;}
+    rr(x,61+94-h-2,14,4,2,au?COL.t:COL.l);if(sel)rr(x-1,59,16,99,4,null,COL.t,1.5);
+    tx(AB[i],x+7,167,sel?COL.t:au?c:COL.l,6.5,'center',800);}
+  tx('SELECT : PISTE OU GROUPE · TOUCHES : COUPER',120,178,COL.m,7.5,'center',700);};

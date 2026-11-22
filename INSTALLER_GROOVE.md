@@ -76,7 +76,7 @@ python tools/fm1_install.py felucca.fwsc
 
 | | |
 |---|---|
-| **HOME** | LIVE → LIVE RYTHME → LIVE MÉLODIE → **FX LIVE** (appuie encore pour la page suivante) |
+| **HOME** | LIVE → LIVE RYTHME → LIVE MÉLODIE → **FX LIVE** → **MIXEUR** (14 faders + égaliseur général) |
 | **HOME maintenu 2 s** | une nouvelle génération pour la piste choisie |
 | **SEQ** | RYTHME (les 16 pas de la ligne de batterie) → MÉLODIE (le piano-roll de la piste) |
 | **ARP** | STYLES → GÉN. RYTHME → GÉN. MÉLODIE · **maintenu 2 s** : valide le style et régénère tout |
@@ -84,8 +84,8 @@ python tools/fm1_install.py felucca.fwsc
 | **SCL** | la gamme, la tonique, la suite d'accords |
 | **ENV** | ENV → FILTRE → LFO → OSC, puis FX A → B → C → D : les 16 effets de FX LIVE sur la piste choisie |
 | **LFO** | MIX → LOOP ROLL |
-| **EDIT** | SON → SON RÉGLAGES → ÉDITER → MIDI PISTES |
-| **GLO** | TEMPO → MIDI |
+| **EDIT** | SON (SELECT fait défiler les sons, tout le clavier joue le son, **OCT−** valide, **OCT+** revient) → SON RÉGLAGES → ÉDITER → MIDI PISTES (canal et sortie MIDI de chaque piste) |
+| **GLO** | TEMPO → MIDI (liste : SELECT descend, PRESETS change la valeur) |
 | **SAVE** | BANQUE → RYTHMES → MÉLODIES |
 | **PRESETS** | choisit la piste (8 batteries + 6 mélodiques) |
 | **SELECT** | se déplace dans la page (le pas, le style, la cible des effets…) |
@@ -93,7 +93,7 @@ python tools/fm1_install.py felucca.fwsc
 | **ALGORITHM** | sur LIVE : à droite **mode JEU** (tout le clavier joue la piste), à gauche les coupures · sur FX LIVE : pages A → D · ailleurs : toutes les pages |
 | **Touches noires** | jouent la piste choisie (batterie : les 8 sons) |
 | **Touches blanches** | changent avec la page, leurs LED montrent ce qu'elles font |
-| **REC** | les notes jouées s'écrivent dans le motif pendant la lecture |
+| **REC** | pendant la lecture : les notes jouées s'écrivent dans le motif, et les knobs tournés (sur n'importe quelle page) s'enregistrent puis rejouent en boucle sur 4 mesures (6 knobs à la fois ; FX PERF : REJOUE, EFFACER) |
 | **GLO → touche blanche 16** | les pages d'Hortator (retour à Groove : maintiens **ENV** et appuie sur **ARP**) |
 
 **FX LIVE**, 16 effets sur 4 pages (ALGORITHM), sur la cible choisie par SELECT ou les touches 1-8 (rythme,
@@ -108,8 +108,7 @@ toute la mélodie, basse, basse 2, synthé, synthé 2, nappe, fx). Les touches 9
 
 - La **banque SAVE** (8 rythmes, 8 mélodies) reste en mémoire jusqu'à l'extinction : elle n'est pas encore
   gardée dans la flash. La batterie se sauve aussi avec les projets d'Hortator.
-- Pas d'échantillons (samples) ni de piano, pas d'éditeur de sons, pas d'enregistrement des mouvements de knobs,
-  pas de canaux MIDI par piste : ces parties sont dans la version web.
+- Pas d'échantillons (samples) ni de piano, pas d'éditeur de sons,   ces parties sont dans la version web. Les 6 pistes mélodiques envoient leurs notes en MIDI USB (EDIT → MIDI PISTES : canal et sortie par piste) ; la batterie ne sort pas encore en MIDI.
 - Les décors des styles et des gammes sont en pixel art, plus simples que ceux de la version web.
 
 ## 7. Revenir au firmware officiel

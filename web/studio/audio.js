@@ -1,4 +1,4 @@
-let dF,dLfo,dLg,ctx,master,mFilt,hFilt,dly,rev,noise,drumBus,mSh,mSG,xD,xDl,xR,mShV=-1;
+let eqN,dF,dLfo,dLg,ctx,master,mFilt,hFilt,dly,rev,noise,drumBus,mSh,mSG,xD,xDl,xR,mShV=-1;
 const bufs={},V=[],rowG=[],HIT={}; /* HIT : heure du dernier coup de chaque piste (voyants de la vue FM-1) */
 const hz=m=>440*Math.pow(2,(m-69)/12);
 // Kit de secours synthétisé (utilisé tant qu'aucun WAV n'est choisi pour la ligne)
@@ -19,7 +19,9 @@ function initAudio(){
   master=ctx.createGain();master.gain.value=.8;
   mFilt=ctx.createBiquadFilter();mFilt.type='lowpass';
   hFilt=ctx.createBiquadFilter();hFilt.type='highpass';
-  const comp=ctx.createDynamicsCompressor();master.connect(mFilt);mFilt.connect(hFilt);comp.connect(ctx.destination);
+  const comp=ctx.createDynamicsCompressor();/* égaliseur général 3 bandes (page MIXEUR) : graves, médiums, aigus, ±12 dB */
+  eqN=[['lowshelf',220],['peaking',1000],['highshelf',3500]].map(([ty,f])=>{const n=ctx.createBiquadFilter();n.type=ty;n.frequency.value=f;if(ty==='peaking')n.Q.value=.7;return n;});
+  master.connect(eqN[0]);eqN[0].connect(eqN[1]);eqN[1].connect(eqN[2]);eqN[2].connect(mFilt);mFilt.connect(hFilt);comp.connect(ctx.destination);
   /* Effets généraux de la vue LIVE, pris après les filtres : disto, puis écho et reverb */
   mSh=ctx.createWaveShaper();mSG=ctx.createGain();hFilt.connect(mSh);mSh.connect(mSG);mSG.connect(comp);
   xD=ctx.createGain();xD.gain.value=0;xDl=ctx.createDelay(2);const xf=ctx.createGain();xf.gain.value=.5;mSG.connect(xD);xD.connect(xDl);xDl.connect(xf);xf.connect(xDl);xDl.connect(comp);
@@ -49,6 +51,7 @@ function applyParams(){
   dly.delayTime.setTargetAtTime(60/S.bpm*.75,now,.05);
   xDl.delayTime.setTargetAtTime(60/S.bpm*.75,now,.05);xD.gain.setTargetAtTime((S.xd||0)*.8,now,.03);xR.gain.setTargetAtTime((S.xr||0)*.8,now,.03);
   if(mShV!==(S.xs||0)){mShV=S.xs||0;mSh.curve=mShV?curve((mShV*12-1)/40):null;mSG.gain.setTargetAtTime(1-.55*mShV,now,.03);}
+  if(eqN){const q=S.eq||[.5,.5,.5];eqN.forEach((n,i)=>n.gain.setTargetAtTime(((q[i]==null?.5:q[i])-.5)*24,now,.03));}
   const set=(b,p,mute)=>{b.sh.curve=curve(p.dist||0,p.cr);b.o.gain.setTargetAtTime(mute?0:p.vol,now,.01);b.d.gain.value=p.dly;b.r.gain.value=p.rev;b.cg.gain.setTargetAtTime((p.cho||0)*.9,now,.03);};
   set(drumBus,S.dfx,false);
   {const d=S.dfx,c=d.cut==null?1:d.cut;dF.frequency.setTargetAtTime(c>=.995?22000:60*Math.pow(2,c*8.4),now,.03);dF.Q.value=.7+(d.res||0)*16;
