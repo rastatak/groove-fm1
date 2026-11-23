@@ -32,7 +32,7 @@ function renderPads(){const P=(k,i,n,m,x,a)=>`<div class="pd${aud(k,i)?'':' dim'
   document.querySelectorAll('[data-lt]').forEach(b=>b.classList.toggle('on',b.dataset.lt===(S.lt||'')));}
 function renderBank(){$('#bank').innerHTML=S.rhythms.map((r,k)=>`<button class="chip${k===S.cur?' on':''}${r===queued?' q':''}${r.tmp?' tmp':''}" data-rk="${k}">${k+1} · ${esc(r.name)}${r.tmp?' 🎲':''}</button>`).join('');
   if(document.activeElement!==$('#rname'))$('#rname').value=cur().name;}
-function renderRhythm(){renderBank();const g=cur().g;
+function renderRhythm(){renderBank();barsUI();const g=cur().g;
   $('#drums').innerHTML=ROWS.map((nm,r)=>{const row=S.rows[r];
     return `<div class="rw" style="--rc:${trkC(r)}"><button class="mt${row.mute?' off':''}${row.lp||row.rl>1?' fx':''}" data-mr="${r}">${nm}</button><select data-sr="${r}">${smpOpts(row.smp,'Son interne',ROWF[r])}</select><input type="range" class="v" min="0" max="1" step="0.01" value="${row.vol}" data-vr="${r}">`+g[r].map((v,c)=>`<i data-c="${c}" data-r="${r}" class="${v?(v===2?'n ac':v===3?'n gh':'n'):''}${c%4?'':' b'}"></i>`).join('')+'</div>';}).join('');
   renderPads();renderDfx();}
@@ -40,7 +40,7 @@ function renderDfx(){const all=fxR<0,same=k=>S.rows.every(r=>r[k]===S.rows[0][k]
     o=all?{lp:same('lp')?S.rows[0].lp:0,rl:same('rl')?S.rows[0].rl:1}:S.rows[fxR];
   $('#dfx').innerHTML=`<label title="Ligne visée par Loop, Roll et Reverse">Effet sur<select id="fxRow"><option value="-1"${all?' selected':''}>★ TOUTES LES LIGNES</option>${ROWS.map((n,r)=>`<option value="${r}"${r===fxR?' selected':''}>${n}${S.rows[r].lp||S.rows[r].rl>1?' ●':''}</option>`).join('')}</select></label>`+seg(o)+`<div class="lbl" title="Maintiens le bouton (ou la touche C) : la ligne choisie dans « Effet sur » (ou toute la batterie) joue à l’envers · relâche : retour à la normale">Reverse (touche C)<button id="drev"${rvR>-2?' class="on"':''}>◀◀ Maintenir</button></div>`;}
 function renderTabs(){$('#tabs').innerHTML=S.tracks.map((t,i)=>`<button class="tab${i===S.sel?' on':''}${t.mute?' off':''}" style="--kc:${trkC(8+i)}" data-st="${i}">${t.name}${t.bw?' ◀':''}${t.ar?' 🎲':''}${t.smp==='piano'?' 🎹':t.smp?' ♪':''}</button>`).join('');}
-function renderRoll(){$('#roll').style.setProperty('--tc',trkC(8+S.sel));const tr=T(),sc=SCALES[S.scale],L=sc.length,tl=tails(tr);let h='';
+function renderRoll(){barsUI();$('#roll').style.setProperty('--tc',trkC(8+S.sel));const tr=T(),sc=SCALES[S.scale],L=sc.length,tl=tails(tr);let h='';
   for(let d=2*L;d>=0;d--){h+=`<div class="rw${d%L?'':' root'}"><span class="lb">${NOTES[(S.root+sc[d%L])%12]}</span>`;
     for(let c=0;c<16;c++)h+=`<i data-c="${c}" data-d="${d}" class="${ncls(tr,tl,c,d)}" style="${nsty(tr,tl,c,d)}"></i>`;
     h+='</div>';}
@@ -66,6 +66,31 @@ const rst=()=>curStep<0?-1:T().bw?15-curStep:curStep;
 let stT=0;
 function hl(st){if(!playing)st=-1;curStep=st;stT=ctx?ctx.currentTime:0;document.querySelectorAll('.pl').forEach(e=>e.classList.remove('pl'));if(st>=0)document.querySelectorAll('#drums i[data-c="'+st+'"],#roll i[data-c="'+rst()+'"]').forEach(e=>e.classList.add('pl'));}
 
+/* ---------- Mesures : un rythme et une piste mélodique font 1, 2 ou 4 mesures de 16 pas ----------
+ * r.bars = ses mesures (des matrices 8×16) et r.g = celle qu’on voit et édite (r.bars[r.eb]) ; pareil pour une piste :
+ * t.bars et t.steps. Tout l’éditeur travaille donc sur 16 pas comme avant ; la lecture prend la mesure en cours. */
+function fixR(r){if(!Array.isArray(r.bars)||!r.bars.length)r.bars=[r.g];r.eb=Math.min(r.eb||0,r.bars.length-1);if(r.bars[r.eb]!==r.g)r.bars[r.eb]=r.g;return r;}
+function fixT(t){if(!Array.isArray(t.bars)||!t.bars.length)t.bars=[t.steps];t.eb=Math.min(t.eb||0,t.bars.length-1);if(t.bars[t.eb]!==t.steps)t.bars[t.eb]=t.steps;return t;}
+const rBar=(r,b)=>{fixR(r);return r.bars[((b%r.bars.length)+r.bars.length)%r.bars.length];},tBar=(t,b)=>{fixT(t);return t.bars[((b%t.bars.length)+t.bars.length)%t.bars.length];};
+const cpG=g=>g.map(r=>r.slice()),cpS=a=>a.map(s=>({...s}));
+function setRBars(n){const r=fixR(cur()),o=r.bars.length;n=n>=4?4:n>=2?2:1;S.rbars=n;if(n>o)for(let k=o;k<n;k++)r.bars.push(cpG(r.bars[k%o]));else r.bars.length=n;r.eb=Math.min(r.eb,n-1);r.g=r.bars[r.eb];r.tmp=false;renderRhythm();save();
+  msg('Rythme sur '+n+' mesure'+(n>1?'s':'')+' ('+n*16+' pas)'+(n>o?' : les mesures ajoutées reprennent les premières, « Rythme random » les remplit':''));}
+function setTBars(n){const t=fixT(T()),o=t.bars.length;n=n>=4?4:n>=2?2:1;t.nb=n;if(n>o)for(let k=o;k<n;k++)t.bars.push(cpS(t.bars[k%o]));else t.bars.length=n;t.eb=Math.min(t.eb,n-1);t.steps=t.bars[t.eb];renderRoll();save();
+  msg(t.name+' sur '+n+' mesure'+(n>1?'s':'')+' ('+n*16+' pas)'+(n>o?' : « Générer » remplit toutes les mesures':''));}
+function barsUI(){if(!S)return;const r=fixR(cur()),t=fixT(T()),seg=(n,eb,k)=>n>1?Array.from({length:n},(_,i)=>`<button data-${k}="${i}" class="${i===eb?'on':''}">Mes. ${i+1}</button>`).join(''):'';
+  const a=$('#rbars'),b=$('#tbars');if(a){a.value=r.bars.length;$('#rbsel').innerHTML=seg(r.bars.length,r.eb,'rb');}if(b){b.value=t.bars.length;$('#tbsel').innerHTML=seg(t.bars.length,t.eb,'tb');}
+  const m=$('#msrc');if(m)m.value=S.msrc||'gen';}
+/* une mélodie générée sur toutes les mesures de la piste : A, A varié, B (une autre), A varié */
+function melBars(i){const tr=S.tracks[i],n=tr.nb||(tr.bars?tr.bars.length:1),A=tr.steps;if(n<2){tr.bars=[A];tr.eb=0;return;}
+  const A2=cpS(A);tr.steps=A2;varyMel(i,true);let B=A2;if(n>=4){genBar(i,true);B=tr.steps;}
+  tr.steps=A;tr.bars=n===2?[A,A2]:[A,A2,B,cpS(A2)];tr.eb=0;}
+/* la base de basses (rdbpack.js) : une des deux lignes du style, en degrés de la gamme en cours */
+function bassBar(k){const e=BASSB[k%BASSB.length],L=SL(),P=SCP[S.scale]||SCP.Mineur,D={'0':0,'1':1,t:P.ch[0],'3':3,q:P.ch[1],x:L-1,o:L},st=Array.from({length:16},()=>({n:-1,a:0,s:0,o:0,l:1}));let last=-1;
+  [...e.n].forEach((ch,c)=>{if(ch==='='&&last>=0)st[last].l++;else if(D[ch]!=null){st[c].n=Math.max(0,Math.min(2*L,D[ch]));st[c].a=/[ab]/.test(e.f[c])?1:0;st[c].s=/[sb]/.test(e.f[c])?1:0;last=c;}else last=-1;});return st;}
+function bassBase(i){const tr=S.tracks[i];if(S.msrc!=='base'||tr.type!=='bass'||typeof BASSB==='undefined'||!STYBAS[S.style])return false;
+  const sb=STYBAS[S.style].map(x=>x-1),a=tr.bl===sb[0]?sb[1]:sb[0],o=a===sb[0]?sb[1]:sb[0],n=tr.nb||(tr.bars?tr.bars.length:1);tr.bl=a;
+  tr.bars=Array.from({length:n},(_,b)=>bassBar(b===2?o:a));tr.eb=0;tr.steps=tr.bars[0];delete LP['t'+i];if(i===S.sel)renderRoll();save();msg('Base : basse « '+BASSB[a].name+' » sur '+tr.name);return true;}
+
 /* ---------- Banque de rythmes ---------- */
 function go(r,add){if(add)S.rhythms.push(r);if(playing){queued=r;renderBank();}else applyR(r);}
 // Style d'une matrice (mémorisé à la création, sinon déduit du nom « Tekno · … »)
@@ -83,7 +108,10 @@ function randomRhythm(){
   /* la source : génération (les modèles du style), la base de rythmes (MIDI importés), ou une fois l’une une fois l’autre */
   if(S.rsrc==='db'||(S.rsrc==='mix'&&(S.rmix=!S.rmix))){const e=typeof rdbPick==='function'&&rdbPick();if(e)return rdbGo(e,false);}
   const list=STYLES[S.style].t;let p;do{p=pick(list);}while(list.length>1&&cur().name.endsWith(p.split('|')[0]));
-  const[nm,hex]=p.split('|');go({name:S.style[0].toUpperCase()+S.style.slice(1)+' · '+nm,tmp:true,st:S.style,g:grid(hex)},true);}
+  const[nm,hex]=p.split('|'),A=grid(hex),n=S.rbars||1,oth=()=>{const o=list.filter(x=>x!==p);return grid(pick(o.length?o:list).split('|')[1]);};
+  /* 2 mesures : A B · 4 mesures : A B A C (d’autres modèles du style) */
+  const bars=n>=4?[A,oth(),cpG(A),oth()]:n>=2?[A,oth()]:[A];
+  go({name:S.style[0].toUpperCase()+S.style.slice(1)+' · '+nm,tmp:true,st:S.style,g:A,bars,eb:0},true);}
 
 // Auto-random d'une seule ligne de batterie : elle prend le motif de cette ligne dans un autre modèle (du style en cours si possible)
 function randomRow(r){const cs=l=>l.map(p=>grid(p.split('|')[1])[r]).filter(a=>a.some(x=>x)),g=cur().g,now=g[r].map(x=>x?1:0).join(''),dif=a=>a.join('')!==now;
@@ -103,7 +131,8 @@ function showCh(){const p=prg();$('#chd').textContent=p?'· '+chName(p[playing?c
 function renderProg(){const P=PROGS[S.scale]||[];S.prog=Math.min(S.prog||0,P.length);
   $('#prog').innerHTML='<option value="0">Off · tonique fixe</option>'+P.map((p,k)=>`<option value="${k+1}"${k+1===S.prog?' selected':''}>${p.map(chName).join(' – ')}</option>`).join('');showCh();}
 // Générateur : rythmes calés sur les 16 pas + notes de l'accord (les degrés sont relatifs à l'accord de la mesure)
-function randomMel(i){const tr=S.tracks[i],L=SL(),ty=tr.type,P=SCP[S.scale]||SCP.Mineur,[t3,t5]=P.ch,
+function randomMel(i){if(bassBase(i))return;genBar(i,true);melBars(i);delete LP['t'+i];if(i===S.sel)renderRoll();save();}
+function genBar(i,quiet){const tr=S.tracks[i],L=SL(),ty=tr.type,P=SCP[S.scale]||SCP.Mineur,[t3,t5]=P.ch,
     st=Array.from({length:16},()=>({n:-1,a:0,s:0,o:0,l:1})),psy=ty==='bass'&&S.style==='psytrance';
   if(ty==='pad'){ /* nappe : l'accord tenu sur la mesure, ou sur deux demi-mesures */
     if(Math.random()<.35){st[0].n=0;st[0].l=8;st[8].n=pick([0,t3]);st[8].l=8;}else{st[0].n=0;st[0].l=16;}}
@@ -127,16 +156,16 @@ function randomMel(i){const tr=S.tracks[i],L=SL(),ty=tr.type,P=SCP[S.scale]||SCP
       /* durées : arpège régulier, basse plutôt courte, motif avec quelques notes tenues */
       s.l=Math.min(f,psy?pick([.5,.75]):arp?al:ty==='bass'?(Math.random()<.3?f:pick([.5,.75,1])):k===last?4:Math.random()<.4?pick([1,2,2,3]):pick([.5,.75,1]));
       if(f===1&&k<last&&Math.random()<(ty==='bass'?.18:.08))s.s=1;});}
-  tr.steps=st;if(i===S.sel)renderRoll();save();}
+  tr.steps=st;if(quiet)return;if(i===S.sel)renderRoll();save();}
 
 // Varier une mélodie : comme « Varier » pour le rythme, 3 ou 4 retouches dans la gamme, le motif reste reconnaissable
-function varyMel(i){const tr=S.tracks[i],L=SL(),mx=2*L,st=tr.steps,on=st.map((s,c)=>s.n>=0?c:-1).filter(c=>c>=0);
-  if(!on.length)return randomMel(i);
+function varyMel(i,quiet){const tr=S.tracks[i],L=SL(),mx=2*L,st=tr.steps,on=st.map((s,c)=>s.n>=0?c:-1).filter(c=>c>=0);
+  if(!on.length)return quiet?0:randomMel(i);
   for(let k=0;k<3+rnd(2);k++){const c=pick(on),s=st[c],r=Math.random();
     if(r<.6)s.n=Math.max(0,Math.min(mx,s.n+pick([-2,-1,1,2])));
     else if(r<.8){const e=st.findIndex((x,j)=>x.n<0&&j%2===0&&j>c);if(e>=0)st[e]={n:s.n,a:0,s:0,o:0,l:1};}
     else s.a=s.a?0:1;}
-  delete LP['t'+i];if(i===S.sel)renderRoll();save();}
+  if(quiet)return;delete LP['t'+i];if(i===S.sel)renderRoll();save();}
 /* ---------- Séquenceur ---------- */
 // Loop : renvoie le pas à jouer pour une piste/ligne (boucle de N pas calée sur la dernière note)
 function lstep(key,o,st,has){const n=o.lp||0;if(!n){delete LP[key];return st;}
@@ -152,9 +181,11 @@ function sched(st,t){const sd=60/S.bpm/4;midiClock(t,sd);if(st%2)t+=sd*S.swing*.
   const hs=o=>o.hf?((st>>1)+((bar&1)?0:8))%16:st; /* DEMI : la piste lue deux fois moins vite (1 pas sur 2, sur 2 mesures) */
   const gate=(b,o)=>{if(!b||!b.gt)return;const d=o.gt||0;b.gt.gain.cancelScheduledValues(t);b.gt.gain.setValueAtTime(1,t);if(d>0)b.gt.gain.setValueAtTime(Math.max(0,1-d),t+sd*.5);};
   if(drumBus)gate(drumBus,S.dfx);S.tracks.forEach((tr,i)=>V[i]&&gate(V[i].b,tr));
-  const co=chOff(),g=cur().g,lr=lv('r'),lt=lv('t');for(let r=0;r<8;r++){const row=S.rows[r];if(row.hf&&st%2)continue;if(row.sk&&Math.random()<row.sk)continue;const rv=lr.rv||rvR===-1||rvR===r||!!row.rv,gr=rv?g[r].map((_,x)=>g[r][(30-x)%16]):g[r],
+  const co=chOff(),g=rBar(cur(),bar-1),lr=lv('r'),lt=lv('t');   /* (la mesure en cours du rythme) */for(let r=0;r<8;r++){const row=S.rows[r];if(row.hf&&st%2)continue;if(row.sk&&Math.random()<row.sk)continue;const rv=lr.rv||rvR===-1||rvR===r||!!row.rv,gr=rv?g[r].map((_,x)=>g[r][(30-x)%16]):g[r],
       c=lstep('r'+r,{lp:lr.lp||row.lp},hs(row),x=>gr[x]),n=lr.rl||row.rl||1;if(gr[c])for(let j=0;j<n;j++)drum(r,t+j*sd/n,gr[c],Math.pow(.8,j),rv?sd*2:0);}
-  S.tracks.forEach((tr,i)=>{const v=V[i];if(!v)return;if(tr.hf&&st%2)return;const lp=lt.lp||tr.lp||0,q=lt.rv||i===rvI||tr.bw||tr.rv?{steps:revSteps(tr)}:tr,c=lstep('t'+i,{lp},hs(tr),x=>q.steps[x].n>=0),s=q.steps[c];
+  S.tracks.forEach((tr0,i)=>{const v=V[i];if(!v)return;if(tr0.hf&&st%2)return;
+    /* la mesure en cours de la piste (DEMI : elle avance une mesure sur deux) : la piste, avec ces 16 pas-là */
+    const pb=tBar(tr0,tr0.hf?(bar-1)>>1:bar-1),tr=pb===tr0.steps?tr0:Object.assign(Object.create(tr0),{steps:pb}),lp=lt.lp||tr.lp||0,q=lt.rv||i===rvI||tr.bw||tr.rv?{steps:revSteps(tr)}:tr,c=lstep('t'+i,{lp},hs(tr),x=>q.steps[x].n>=0),s=q.steps[c];
     if(tr.sk&&s.n>=0&&Math.random()<tr.sk)return;
     if(i===liveI)return; /* touche tenue : le jeu en direct a la priorité sur le motif */
     if(s.n<0){if(v.sl&&tails(q)[c]<0)off(i,t);return;}
@@ -375,6 +406,10 @@ $('#clr').onclick=()=>{cur().g=ROWS.map(()=>Array(16).fill(0));cur().tmp=false;r
 $('#del').onclick=()=>{if(S.rhythms.length<2)return msg('Il faut garder au moins une matrice');S.rhythms.splice(S.cur,1);S.cur=Math.max(0,S.cur-1);queued=null;renderRhythm();save();};
 $('#rname').oninput=e=>{cur().name=e.target.value;cur().tmp=false;renderBank();save();};
 $('#mrnd').onclick=()=>randomMel(S.sel);
+$('#rbars').onchange=e=>{setRBars(+e.target.value);e.target.blur();};$('#tbars').onchange=e=>{setTBars(+e.target.value);e.target.blur();};
+$('#msrc').onchange=e=>{S.msrc=e.target.value;e.target.blur();save();msg(S.msrc==='base'?'Mélodies : les basses prennent les lignes de basse du style, les autres pistes sont générées':'Mélodies : génération dans la gamme, comme avant');};
+$('#rbsel').onclick=e=>{const k=e.target.dataset.rb;if(k==null)return;const r=fixR(cur());r.eb=+k;r.g=r.bars[r.eb];renderRhythm();save();};
+$('#tbsel').onclick=e=>{const k=e.target.dataset.tb;if(k==null)return;const t=fixT(T());t.eb=+k;t.steps=t.bars[t.eb];renderRoll();save();};
 $('#mvary').onclick=()=>{varyMel(S.sel);msg('Mélodie de '+T().name+' variée');};
 $('#mall').onclick=()=>{let n=0;S.tracks.forEach((t,i)=>{if(!t.mute){randomMel(i);n++;}});msg(n?n+' piste(s) régénérée(s) sur les mêmes accords':'Toutes les pistes sont coupées : rien à générer');};
 $('#mauto').onchange=e=>{const v=+e.target.value;T().ar=v;renderTabs();renderPads();save();msg(v?'Auto‑random '+T().name+' : nouvelle mélodie toutes les '+v+' mesures':'Auto‑random coupé sur '+T().name);};

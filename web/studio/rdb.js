@@ -92,7 +92,9 @@ function rdbRender(){const el=document.getElementById('rdbl');if(!el||!S)return;
 /* un motif de la base pour « Rythme random » / l'auto-random : le genre choisi dans la liste ; sinon ceux du style en cours ; sinon toute la base */
 function rdbPick(){const A=rdbAll();if(!A.length)return null;let L=rdbFilt();if(!(S.rgen||'')){const m=A.filter(rdbFits);if(m.length)L=m;}
   const now=JSON.stringify(cur().g),c=L.filter(e=>JSON.stringify(e.g)!==now);return c.length?pick(c):L.length?pick(L):null;}
-function rdbGo(e,setBpm){const r={name:(e.genre+' · '+e.name).slice(0,24),tmp:true,st:setBpm?e.st||S.style:S.style,g:e.g.map(r=>r.slice())};
+function rdbGo(e,setBpm){const A=e.g.map(r=>r.slice()),n=S.rbars||1,alt=rdbAll().filter(x=>x.genre===e.genre&&x!==e),B=()=>(alt.length?pick(alt):e).g.map(r=>r.slice());
+  /* (2 ou 4 mesures : le motif, et un autre du même genre sur les mesures paires s’il y en a un) */
+  const r={name:(e.genre+' · '+e.name).slice(0,24),tmp:true,st:setBpm?e.st||S.style:S.style,g:A,bars:n>=4?[A,B(),e.g.map(r=>r.slice()),B()]:n>=2?[A,B()]:[A],eb:0};
   if(setBpm&&e.bpm)r.bpm=e.bpm;   /* (chargé à la main : son tempo ; pioché par le random : le tempo et le style en cours restent) */
   go(r,true);}
 function rdbDown(bytes,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:'audio/midi'}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);}
@@ -104,7 +106,7 @@ function rdbInit(){
   $('#rdba').onclick=async()=>{const g=cur().g.map(r=>r.slice()),sig=JSON.stringify(g);if(rdbAll().some(e=>JSON.stringify(e.g)===sig))return msg('Ce rythme est déjà dans la base');
     const gn=S.rgen||S.style[0].toUpperCase()+S.style.slice(1);RDB.push({id:'r'+Date.now().toString(36),name:cur().name.slice(0,40),genre:gn,st:S.style,bpm:S.bpm,g});
     RDB.sort((a,b)=>a.genre.localeCompare(b.genre)||a.name.localeCompare(b.name));await rdbSave();rdbRender();msg('« '+cur().name+' » ajouté à la base de rythmes ('+gn+')');};
-  $('#rdbx').onclick=()=>{rdbDown(midiBuild([{name:cur().name,genre:'',g:cur().g}],S.bpm),(cur().name||'rythme').replace(/[^\w\- ]+/g,'_')+' '+S.bpm+' BPM.mid');msg('Rythme exporté en MIDI (1 mesure, canal 10, General MIDI)');};
+  $('#rdbx').onclick=()=>{rdbDown(midiBuild(fixR(cur()).bars.map((g,k)=>({name:cur().name+(k?' · mes. '+(k+1):''),genre:'',g})),S.bpm),(cur().name||'rythme').replace(/[^\w\- ]+/g,'_')+' '+S.bpm+' BPM.mid');msg('Rythme exporté en MIDI ('+cur().bars.length+' mesure(s), canal 10, General MIDI)');};
   $('#rdbxa').onclick=()=>{const L=rdbFilt();if(!L.length)return msg('La base est vide');rdbDown(midiBuild(L,S.bpm),'Base de rythmes'+(S.rgen?' '+S.rgen:'')+'.mid');msg(L.length+' motif(s) exporté(s) dans un fichier MIDI : une mesure par motif, son nom en marqueur');};
   $('#rdbl').addEventListener('click',async e=>{const d=e.target.closest('[data-rdb],[data-rdbx]');if(!d)return;
     if(d.dataset.rdbx){RDB=RDB.filter(x=>x.id!==d.dataset.rdbx);await rdbSave();rdbRender();return;}

@@ -90,3 +90,10 @@ Onglet **Rythme** → **BASE DE RYTHMES** :
 - **Ajouter ce rythme** : met le rythme affiché dans la base. **Exporter ce rythme / la base (.mid)** : fichier MIDI, canal 10.
 - **Random pioche dans** : *Génération* (comme avant), *Base de rythmes*, ou *Les deux*. Ce réglage vaut pour « Rythme random » et pour l'auto-random. Avec un genre choisi dans la liste, la pioche reste dans ce genre ; sinon elle prend les motifs du style en cours, ou toute la base.
 - La base est gardée dans ce navigateur, à part du projet. Rien n'est envoyé ni publié.
+
+## Mesures (16, 32 ou 64 pas) et basses par style
+
+- Onglet **Rythme** : « Mesures » règle la longueur du rythme (1, 2 ou 4 mesures) ; les boutons « Mes. 1…4 » choisissent la mesure affichée. « Rythme random » remplit toutes les mesures (A B A C).
+- Onglet **Mélodie** : pareil pour la piste choisie ; « Générer » donne A, A varié, B, A varié.
+- « Générer depuis : Base (basses du style) » : les pistes de basse prennent une des deux lignes de basse écrites pour le style, dans la gamme en cours.
+- Vue FM‑1, page SEQ : SELECT passe à la mesure suivante au‑delà du 16e pas.

@@ -236,9 +236,10 @@ int main(void)
       sim_btn(B_ARP, 1); run(FS * 21u / 10u); sim_btn(B_ARP, 0); run(FS / 20u); check("ARP held on VISU: taken", gv.style == gu.sty);
       for (k = 0; k < GV_NSTY; k++) { char n[16]; gu.sty = k; snprintf(n, sizeof n, "st%u", (unsigned)k); shot(n); } gu.sty = gv.style; }
     gv.sel = 0; tap_btn(B_EDIT); while (gu.page != GP_SON) tap_btn(B_EDIT);
-    tap_btn(B_EDIT); check("EDIT x2: SON REGLAGES", gu.page == GP_SONR); shot("sonr");
-    tap_btn(B_EDIT); check("EDIT x3: EDITER", gu.page == GP_SEDIT); { int16_t e = trk[GV_ROWTRK[0]].p[P_E2]; sim_enc(EN_K1, 4); run(FS / 20u); check("EDITER knob 1: the voice's 3rd knob", trk[GV_ROWTRK[0]].p[P_E2] != e); } shot("sedit");
-    tap_btn(B_EDIT); check("EDIT x4: MIDI PISTES", gu.page == GP_EMIDI); shot("emidi");
+    tap_btn(B_EDIT); check("EDIT x2: REGLAGES (the steps, the sources)", gu.page == GP_GSET);
+    tap_btn(B_EDIT); check("EDIT x3: SON REGLAGES", gu.page == GP_SONR); shot("sonr");
+    tap_btn(B_EDIT); check("EDIT x4: EDITER", gu.page == GP_SEDIT); { int16_t e = trk[GV_ROWTRK[0]].p[P_E2]; sim_enc(EN_K1, 4); run(FS / 20u); check("EDITER knob 1: the voice's 3rd knob", trk[GV_ROWTRK[0]].p[P_E2] != e); } shot("sedit");
+    tap_btn(B_EDIT); check("EDIT x5: MIDI PISTES", gu.page == GP_EMIDI); shot("emidi");
     {   /* GLO: PRESETS up/down, ALGORITHM left/right, SELECT the value, OCT- validates */
         int16_t sw; uint8_t al;
         tap_btn(B_HOME); tap_btn(B_GLO); gu.gcur = 0;
@@ -408,7 +409,7 @@ int main(void)
         printf("info  NOISE: all cut %.5f, riser full %.4f\n", a, b);
         check("NOISE RISER: heard with everything else cut", gv.nr == 127 && a < 0.002 && b > 0.01);
         gv.nr = 0; gv.gmute = 0;
-        gv.sel = 0; gu.dirty = 1; run(FS / 20u); { char v[20]; uint8_t kn[4]; gv_knobs(kn); gv_kfmt(kn[0], gv_kget(kn[0]), v); check("FX G on the KICK: WAVEFOLD is the drums' own now", strcmp(v, "MELODIE") != 0); }
+        gv.sel = 0; gu.dirty = 1; run(FS / 20u); { char v[GV_FMT_N]; uint8_t kn[4]; gv_knobs(kn); gv_kfmt(kn[0], gv_kget(kn[0]), v); check("FX G on the KICK: WAVEFOLD is the drums' own now", strcmp(v, "MELODIE") != 0); }
         tap_btn(B_HOME);
     }
     {   /* HOME: FX LIVE last, HOME again goes through its pages; LFO: MIX, LOOP ROLL, then the effect pages */
@@ -463,7 +464,7 @@ int main(void)
         { uint8_t k0 = gv.libk; tap_btn(B_OCTUP); check("OCT+ again: the other TRAP motif", gv.libk != k0 && !strcmp(GV_LGN[GV_LIB[gv.libk - 1u].g], "TRAP"));
           tap_btn(B_OCTDN); check("OCT-: back to the first", gv.libk == k0); }
         while (gu.page != GP_MEL) tap_btn(B_SEQ);
-        gv.sel = 9; for (k = 0; k < 16u; k++) { gu.mb[3][k].n = 5; gu.mb[3][k].l4 = 4; } gu.mbu = 1u << 3; gu.mcur = 0;
+        gv.sel = 9; for (k = 0; k < 16u; k++) { gv_bk.mb[3][k].n = 5; gv_bk.mb[3][k].l4 = 4; } gv_bk.mbl[3] = 16; gu.mbu = 1u << 3; gu.mcur = 0;
         tap_btn(B_OCTUP); check("SEQ MELODIE, OCT+: the bank's melody on the track", gv.t[1].st[7].n == 5 && gu.mcur == 3u);
         gu.mbu = 0; gv_set_style(0);
         tap_btn(B_HOME);
@@ -485,7 +486,7 @@ int main(void)
         check("every genre: other genres come too", any);
         sim_enc(EN_PRESET, 1); run(FS / 20u); check("PRESETS again: the bank", gv.rsrc == 3u);
         gu.rbu = 0; gv_gen_rhythm(); check("the bank empty: the generator still gives a rhythm", gv.tpl != 0);
-        for (r = 0; r < 8u; r++) { gu.rb[2][r] = (uint16_t)(0x8000u >> r); gu.rb[5][r] = (uint16_t)(0x0001u << r); } gu.rbu = (1u << 2) | (1u << 5); gu.rcur = 0;
+        for (r = 0; r < 8u; r++) { gv_bk.rb[2][0][r] = (uint16_t)(0x8000u >> r); gv_bk.rb[5][0][r] = (uint16_t)(0x0001u << r); } gv_bk.rbl[2] = gv_bk.rbl[5] = 16; gu.rbu = (1u << 2) | (1u << 5); gu.rcur = 0;
         gv_gen_rhythm(); for (r = 0; r < 8u; r++) a0[r] = gv_rhythm_row_get(r);
         check("the bank: its first kept rhythm (slot 3)", a0[0] == 0x8000u && a0[7] == 0x0100u && gu.rcur == 2u);
         gv_gen_rhythm(); check("... then the next (slot 6)", gv_rhythm_row_get(0) == 0x0001u && gu.rcur == 5u);
@@ -495,12 +496,18 @@ int main(void)
         gv_gen_rhythm(); check("the generator: a template of the style", gv.tpl != 0 && gv.libk == 0);
         gu.rbu = 0;
         tap_btn(B_HOME); check("HOME: LIVE MELODIE", gu.page == GP_LMEL);
-        for (k = 0; k < 16u; k++) { gu.mb[1][k].n = (int8_t)(k & 3u); gu.mb[1][k].l4 = 4; } gu.mbu = 1u << 1; gu.mcur = 0;
-        sim_enc(EN_PRESET, 1); run(FS / 20u); check("LIVE MELODIE, PRESETS: the source is the bank", gv.msrc == 1u);
+        for (k = 0; k < 16u; k++) { gv_bk.mb[1][k].n = (int8_t)(k & 3u); gv_bk.mb[1][k].l4 = 4; } gv_bk.mbl[1] = 16; gu.mbu = 1u << 1; gu.mcur = 0;
+        sim_enc(EN_PRESET, 1); run(FS / 20u); check("LIVE MELODIE, PRESETS: the source is the base (the style's bass lines)", gv.msrc == 1u);
+        { uint32_t a2; gv_set_style(3); gv_basl[0] = 0; gv_gen_mel(0); a2 = gv_basl[0];
+          check("PSYTRANCE, the base: the BASSE takes the rolling bass (3 notes after each beat)", a2 == GV_STBAS[3][0] + 1u && gv.t[0].st[0].n < 0 && gv.t[0].st[1].n == 0 && gv.t[0].st[2].n == 0 && gv.t[0].st[3].n == 0 && gv.t[0].st[4].n < 0);
+          gv_gen_mel(0); check("again: the style's other bass line", gv_basl[0] != a2 && gv_basl[0] == GV_STBAS[3][1] + 1u);
+          gv_gen_mel(1); check("the SYNTHE is still generated", gv.t[1].st[0].n >= -1);
+          gv_set_style(0); }
+        sim_enc(EN_PRESET, 1); run(FS / 20u); check("PRESETS again: the bank", gv.msrc == 2u);
         shot("src_mel");
         gv_gen_mel(1); for (k = 0; k < 16u; k++) if (gv.t[1].st[k].n != (int8_t)(k & 3u)) dif = 1;
         check("a new melody on the SYNTHE: the bank's", !dif);
-        sim_enc(EN_PRESET, -1); run(FS / 20u); for (k = 0; k < 16u; k++) m0[k] = (uint8_t)gv.t[1].st[k].n;
+        sim_enc(EN_PRESET, -1); run(FS / 20u); sim_enc(EN_PRESET, -1); run(FS / 20u); for (k = 0; k < 16u; k++) m0[k] = (uint8_t)gv.t[1].st[k].n;
         gv_gen_mel(1); dif = 0; for (k = 0; k < 16u; k++) if (m0[k] != (uint8_t)gv.t[1].st[k].n) dif = 1;
         check("source back to the generator: a generated melody", gv.msrc == 0u && dif);
         gu.mbu = 0;
@@ -518,22 +525,53 @@ int main(void)
         tap_btn(B_OCTDN); check("OCT-: that motif plays", gv.libk == gu.lcur + 1u && gv_rhythm_row_get(0) == GV_LIB[gu.lcur].on[0]);
         shot("libr");
         gu.rbu = 0; gu.mbu = 0;
-        hold_btn(B_SAVE); check("SAVE held: the rhythm kept in the bank's first free slot", gu.rbu == 1u && gu.rb[0][0] == gv_rhythm_row_get(0) && gu.page == GP_LIBR);
-        for (r = 0; r < 8u; r++) keep[r] = gu.rb[0][r];
+        hold_btn(B_SAVE); check("SAVE held: the rhythm kept in the bank's first free slot", gu.rbu == 1u && gv_bk.rb[0][0][0] == gv_rhythm_row_get(0) && gu.page == GP_LIBR);
+        for (r = 0; r < 8u; r++) keep[r] = gv_bk.rb[0][0][r];
         gu.lcur = (uint8_t)GV_NLIB; tap_key(STEP_KEY[8]); check("the list's BANQUE 1, key 9: it plays", gu.rcur == 0u && gv.libk == (uint8_t)0 + 0 && gv_rhythm_row_get(3) == keep[3]);
         tap_btn(B_EDIT); while (gu.page != GP_LIBR) tap_btn(B_EDIT); check("EDIT: BASE RYT too", gu.btn == B_EDIT);
         tap_btn(B_EDIT); check("EDIT again: the kept melodies", gu.page == GP_BKM);
-        gv.sel = 9; hold_btn(B_SAVE); check("SAVE held there: the SYNTHE's melody kept", gu.mbu == 1u && gu.mb[0][0].n == gv.t[1].st[0].n);
-        tap_btn(B_EDIT); check("EDIT again: REGLAGES", gu.page == GP_GSET);
-        gv.rsrc = 0; sim_enc(EN_K1, 1); run(FS / 20u); check("REGLAGES, KNOB 1: the rhythm's source", gv.rsrc == 1u);
-        sim_enc(EN_K3, 1); run(FS / 20u); check("KNOB 3: the melody's source", gv.msrc == 1u);
+        gv.sel = 9; hold_btn(B_SAVE); check("SAVE held there: the SYNTHE's melody kept", gu.mbu == 1u && gv_bk.mb[0][0].n == gv.t[1].st[0].n);
+        while (gu.page != GP_GSET) tap_btn(B_EDIT); check("EDIT: REGLAGES", gu.page == GP_GSET && gu.btn == B_EDIT);
+        gv.rsrc = 0; gv.msrc = 0; gv.sel = 9; gu.dirty = 1; run(FS / 20u);
+        sim_enc(EN_K1, 1); run(FS / 20u); check("REGLAGES on the SYNTHE, KNOB 1: the melody's source", gv.msrc == 1u);
+        sim_enc(EN_K4, 1); run(FS / 20u); check("KNOB 4: the rhythm's source", gv.rsrc == 1u);
+        sim_enc(EN_K3, 1); run(FS / 20u); check("KNOB 3: the SYNTHE's steps, 32", gv_tlen(1) == 32u && gv_tlen(0) == 16u);
+        { uint32_t c, same = 1; for (c = 0; c < 16u; c++) same &= gv.t[1].st[c].n == gv.t[1].st[16u + c].n; check("... the second bar is the first (nothing changes to the ear)", same); }
+        sim_enc(EN_K3, 1); run(FS / 20u); check("KNOB 3 again: 64 steps", gv_tlen(1) == 64u);
+        gv.msrc = 0;
+        { uint32_t c, d01 = 0, d02 = 0, d13 = 0, tries; 
+          for (tries = 0; tries < 6u && !(d01 && d02); tries++) { gv_gen_mel(1); for (c = 0; c < 16u; c++) { d01 |= gv.t[1].st[c].n != gv.t[1].st[16u + c].n || gv.t[1].st[c].a != gv.t[1].st[16u + c].a; d02 |= gv.t[1].st[c].n != gv.t[1].st[32u + c].n; d13 |= gv.t[1].st[16u + c].n != gv.t[1].st[48u + c].n; } }
+          check("a melody generated on 64 steps: 4 bars, A A' B A' (bar 2 varied, bar 3 another, bar 4 = bar 2)", d01 && d02 && !d13); }
+        gv.msrc = 1;
+        sim_enc(EN_SELECT, -9); run(FS / 20u); sim_enc(EN_SELECT, 14); run(FS / 20u); gv.sel = 0; gu.dirty = 1; run(FS / 20u);
+        sim_enc(EN_K3, 1); run(FS / 20u); sim_enc(EN_K3, 1); run(FS / 20u);
+        check("REGLAGES on the KICK, KNOB 3: the rhythm's steps, 64 (Hortator's LEN on the 8 rows)", gv_rlen() == 64u && trk[GV_ROWTRK[0]].p[P_SLEN] == 64 && trk[GV_ROWTRK[7]].p[P_SLEN] == 64);
+        gv.rsrc = 0; gv_set_style(0); gv_gen_rhythm();
+        check("a rhythm generated on 64 steps: bars 1 and 3 alike, bar 2 another template", gv_row_getb(3, 0) == gv_row_getb(3, 2) && (gv_row_getb(3, 1) != gv_row_getb(3, 0) || gv_row_getb(5, 1) != gv_row_getb(5, 0) || gv_row_getb(4, 1) != gv_row_getb(4, 0) || gv_row_getb(7, 1) != gv_row_getb(7, 0) || gv_row_getb(6, 1) != gv_row_getb(6, 0)));
+        shot("gset64");
+        tap_btn(B_SEQ); while (gu.page != GP_RYT) tap_btn(B_SEQ);
+        gu.cur = 0; for (k = 0; k < 20u; k++) { sim_enc(EN_SELECT, 1); run(FS / 40u); }
+        check("SEQ RYTHME, SELECT 20 steps on: the cursor is in bar 2", gu.cur == 20u && gv_wb() == 16u);
+        { uint8_t was = trk[GV_ROWTRK[0]].step[16 + 9].on; tap_key(STEP_KEY[9]); check("key 10 there: step 26 of the KICK", trk[GV_ROWTRK[0]].step[25].on != was && gu.cur == 25u); trk[GV_ROWTRK[0]].step[25].on = was; }
+        shot("seq_bar2");
+        { uint16_t b0 = gv_row_getb(3, 0), b1 = gv_row_getb(3, 1), b3 = gv_row_getb(3, 3);
+          uint8_t u0 = gu.rbu; gv_bk_rsave(4); gu.rbu |= 1u << 4; gv_set_rlen(16); gv_rhythm_row_set(3, 0);
+          gv_bk_rload(4); check("the bank: a 64-step rhythm kept and back, its 4 bars and its length", gv_rlen() == 64u && gv_row_getb(3, 0) == b0 && gv_row_getb(3, 1) == b1 && gv_row_getb(3, 3) == b3); gu.rbu = u0; }
+        if (!sim_playing()) tap_btn(B_PLAY);
+        { uint32_t seen = 0, guard; for (guard = 0; guard < 400u && seen != 15u; guard++) { run(FS / 50u); seen |= 1u << (gv_rstep() / 16u); } check("playing: the rhythm goes through its 4 bars", seen == 15u); }
+        { uint32_t seen = 0, guard; for (guard = 0; guard < 400u && seen != 15u; guard++) { run(FS / 50u); seen |= 1u << (gv_tstep(1) / 16u); } check("... the SYNTHE through its 4, the BASSE stays on 1", seen == 15u && gv_tstep(0) < 16u); }
+        tap_btn(B_PLAY);
+        tap_btn(B_EDIT); while (gu.page != GP_GSET) tap_btn(B_EDIT);
         shot("gset");
         if (sim_playing()) tap_btn(B_PLAY);
         run(FS * 3u / 2u);                             /* stopped a second: the bank is written */
-        gu.rbu = gu.mbu = 0; memset(gu.rb, 0, sizeof gu.rb); memset(gu.mb, 0, sizeof gu.mb); gv.rsrc = gv.msrc = 0;
+        gu.rbu = gu.mbu = 0; memset(&gv_bk, 0, sizeof gv_bk); gv.rsrc = gv.msrc = 0;
         gv_store_load();
-        check("the bank back from flash: the rhythm, the melody, the sources", gu.rbu == 1u && gu.mbu == 1u && gu.rb[0][3] == keep[3] && gv.rsrc == 1u && gv.msrc == 1u);
+        check("the bank back from flash: the rhythm, the melody, the sources", gu.rbu == 1u && gu.mbu == 1u && gv_bk.rb[0][0][3] == keep[3] && gv.msrc == 1u);
+        check("... and the lengths", gv_rlen() == 64u && gv_tlen(1) == 64u && gv_tlen(0) == 16u);
+        gv_set_rlen(16); gv_set_tlen(1, 16); gv.rlen = 16; gv.t[1].len = 16;
         gv.rsrc = gv.msrc = 0; gu.rbu = gu.mbu = 0; run(FS * 3u / 2u);
+        gv_set_style(0); gv_gen_all();
         tap_btn(B_HOME);
     }
     {   /* the PIANO, and SAVE on the SON page: the sound kept */

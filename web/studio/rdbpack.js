@@ -44,3 +44,34 @@ const RDB_G2S={'Techno':['techno','acid','hard techno'],'Melodic techno':['melod
   'Minimal techno':['minimal'],'Trance':['trance','psytrance'],'Trap':['trap','drill'],'House':['house','acid house'],'Deep house':['deep house','dub'],'Tech house':['tech house'],
   'Progressive house':['prog house'],'Bass house':['bass house'],'Nu disco':['nu disco'],'EDM':['edm'],'Boom bap':['boom bap','hip-hop'],'Lo-fi':['lo-fi'],'Drum and bass':['drum n bass'],
   'Jungle':['jungle'],'Breakbeat':['breakbeat'],'UK garage':['uk garage'],'Reggaeton':['reggaeton']};
+
+/* BASE DE BASSES : des lignes de basse d’une mesure, écrites en degrés de la gamme (elles vont donc avec toute gamme et toute tonique).
+ * n : 16 pas — . silence · 0 tonique · 1 2e degré · t tierce · 3 4e degré · q quinte · x 7e · o octave · = la note d’avant tenue.
+ * f : a accent · s slide. STYBAS : les deux lignes de chaque style (numéros dans BASSB, à partir de 1). */
+const BASSB=[
+  {name:'Contretemps',n:'..0...0...0...0.',f:'................'},
+  {name:'Rolling',n:'.000.000.000.000',f:'................'},
+  {name:'Galop',n:'..00..00..00..00',f:'................'},
+  {name:'Croches',n:'0.0.0.0.0.0.0.0.',f:'................'},
+  {name:'Acid',n:'0.0o.0t.0.q0.o0t',f:'..a..s....a...s.'},
+  {name:'House',n:'0..0..q.0..0.tq.',f:'................'},
+  {name:'Deep',n:'0==...0..t==..q.',f:'................'},
+  {name:'Disco',n:'0.o.0.o.0.o.0.o.',f:'................'},
+  {name:'Reese',n:'0=======t===q===',f:'................'},
+  {name:'Sub',n:'0==...0=..q==.t.',f:'................'},
+  {name:'Boom bap',n:'0==....0q.0=....',f:'................'},
+  {name:'808',n:'0=====0===t=....',f:'......s...s.....'},
+  {name:'Drill',n:'0====t..0=..qo=.',f:'.....s......ss..'},
+  {name:'Dembow',n:'0..q..0.0..q..0.',f:'................'},
+  {name:'Dub',n:'0===....q=0=....',f:'................'},
+  {name:'Garage',n:'0=..t..0..q=0...',f:'................'},
+  {name:'Kick bass',n:'..0=..0=..0=..0=',f:'................'},
+  {name:'Tekno',n:'.0.0.0.0.0.0.0.0',f:'................'},
+  {name:'Minimal',n:'0.....0..t....0.',f:'................'},
+  {name:'Lo-fi',n:'0===..t=q===..0.',f:'................'},
+  {name:'Break',n:'0=.0..q.0=..t.0.',f:'................'},
+  {name:'Funk',n:'0.0o..0.q.0o.t0.',f:'..a.......a.....'},
+  {name:'Pompe',n:'0.00.00.0.00.00.',f:'................'},
+  {name:'Melodic',n:'0=..0=..t=..0=q.',f:'................'}
+];
+const STYBAS={'techno':[1,4],'tekno':[18,17],'trance':[1,2],'psytrance':[2,3],'acidcore':[5,18],'minimal':[19,1],'dub':[15,7],'hip-hop':[11,20],'trap':[12,13],'drill':[13,12],'schranz':[4,2],'acid':[5,4],'acid house':[5,6],'house':[6,8],'hardcore':[17,4],'hardtek':[17,18],'tribe':[18,4],'hard techno':[4,2],'melodic techno':[24,1],'tech house':[6,19],'deep house':[7,6],'prog house':[23,1],'bass house':[23,6],'nu disco':[8,22],'edm':[23,1],'drum n bass':[9,10],'jungle':[10,9],'breakbeat':[21,11],'uk garage':[16,6],'reggaeton':[14,11],'boom bap':[11,20],'lo-fi':[20,11]};

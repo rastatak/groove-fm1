@@ -8,25 +8,26 @@
 #include "gv_data.h"
 static int gv_abs(int v) { return v < 0 ? -v : v; }
 /* a tiny printf for the screen: %s %d %+d %% */
+#define GV_FMT_N 44                /* gv_fmt writes at most this, the 0 included: every buffer given to it is this long */
 static void gv_fmt(char *b, const char *f, ...)
 {
     va_list ap;
-    char *o = b;
+    char *o = b, *e = b + GV_FMT_N - 1;
     va_start(ap, f);
-    while (*f && o - b < 30) {
+    while (*f && o < e) {
         if (*f != '%') { *o++ = *f++; continue; }
         f++;
         if (*f == '%') { *o++ = '%'; f++; continue; }
-        if (*f == 's') { const char *s = va_arg(ap, const char *); while (*s && o - b < 30) *o++ = *s++; f++; continue; }
+        if (*f == 's') { const char *s = va_arg(ap, const char *); while (*s && o < e) *o++ = *s++; f++; continue; }
         {
             int plus = *f == '+', v, n = 0;
             char d[12];
             unsigned u;
             if (plus) f++;
             v = va_arg(ap, int);
-            if (v < 0) { *o++ = '-'; u = (unsigned)(-v); } else { if (plus) *o++ = '+'; u = (unsigned)v; }
+            if (v < 0) { if (o < e) *o++ = '-'; u = (unsigned)(-v); } else { if (plus && o < e) *o++ = '+'; u = (unsigned)v; }
             do { d[n++] = (char)('0' + u % 10u); u /= 10u; } while (u);
-            while (n) *o++ = d[--n];
+            while (n && o < e) *o++ = d[--n];
             f++;
         }
     }
@@ -47,6 +48,7 @@ static const char *const GV_TRN[GV_NT] = {"BASSE", "SYNTHE", "BASSE 2", "SYNTHE 
 static const uint8_t GV_TTYPE[GV_NT] = {GT_BASS, GT_SYNTH, GT_BASS, GT_SYNTH, GT_PAD, GT_FX};
 static const uint8_t GV_AUS[7] = {0, 4, 8, 16, 32, 64, 128};
 
+#define GV_MAXS 64u                 /* a track's steps at most (the drums': Hortator's NSTEP) */
 typedef struct {                   /* one step (the web app's {n, a, s, o, l}) */
     int8_t n;                      /* scale degree, -1 none */
     uint8_t a : 1, s : 1, o4 : 2;  /* accent, slide, offset in quarter steps */
@@ -65,7 +67,8 @@ typedef struct {                   /* a melodic track; knobs 0..127 like Hortato
                                     * note), tape stop (the track slows down to a halt) */
     uint8_t cho, rl, sk, rv, lp, cr, gt, hf;   /* FX LIVE pages C D: chorus, roll x2-4, skipped steps, reverse, loop
                                     * 1-8 steps, bitcrush, gate, half tempo */
-    gv_step_t st[16];
+    gv_step_t st[GV_MAXS];         /* its steps: len of them play (16, 32 or 64: 1, 2 or 4 bars) */
+    uint8_t len;
 } gv_trk_t;
 
 typedef struct {                   /* everything Groove keeps (gv_save: flash) */
@@ -83,6 +86,7 @@ typedef struct {                   /* everything Groove keeps (gv_save: flash) *
                                     * disto, echo and reverb sends */
     uint8_t dtr, dap, drm, dwf, dsat, dfo;   /* the drums' own (all 8 rows together, on their mix): tremolo, auto-pan, ring
                                     * modulation, wavefolder, saturation, vowel */
+    uint8_t rlen;                  /* the rhythm's steps (16, 32 or 64), the 8 rows alike */
     uint8_t rsrc, msrc;            /* where a new rhythm / a new melody comes from: 0 the generator, then the built-in
                                     * base (the style's genres, every genre) and the bank (SAVE) - gv_src_rhythm, gv_src_mel */
     uint8_t libk;                  /* the base's last motif + 1 (0: none) */
@@ -202,17 +206,42 @@ static void gv_mel_clear(gv_trk_t *t)
     }
 }
 static uint8_t gv_l4(uint32_t q) { return (uint8_t)(q < 1u ? 1u : q > 64u ? 64u : q); }
+static uint32_t gv_lenok(uint32_t n) { return n >= 64u ? 64u : n >= 32u ? 32u : 16u; }
+static uint32_t gv_tlen(uint32_t i) { return gv_lenok(gv.t[i % GV_NT].len); }   /* a melodic track's steps */
+static uint32_t gv_rlen(void) { return gv_lenok(gv.rlen); }                    /* the rhythm's */
 /* a new melody for track i: rhythm on the grid (straight or syncopated as the scale likes), chord notes on the beats,
  * passing notes between, the half bar repeated, an ending that resolves; arpeggios on synths; pads hold the chord */
 static int gv_src_rhythm(void);                /* (groove_ui.c: the base, the bank; 0 = the generator's turn) */
 static int gv_src_mel(uint32_t i);
+static void gv_vary_bar(uint32_t i, uint32_t bar);
+static void gv_gen_bar(uint32_t i);
+/* the whole track: its first bar generated; 2 bars: the second is the first, varied; 4 bars: A A' B A' (B another one) */
+static void gv_mel_fill(uint32_t i)                /* bars 2.. from the first */
+{
+    gv_trk_t *t = &gv.t[i];
+    uint32_t n = gv_tlen(i) / 16u;
+    if (n >= 2u) { memcpy(&t->st[16], &t->st[0], 16u * sizeof t->st[0]); gv_vary_bar(i, 1); }
+    if (n >= 4u) {
+        gv_step_t a[16];
+        memcpy(a, &t->st[0], sizeof a);
+        gv_gen_bar(i);
+        memcpy(&t->st[32], &t->st[0], sizeof a);
+        memcpy(&t->st[0], a, sizeof a);
+        memcpy(&t->st[48], &t->st[16], sizeof a);
+    }
+}
 static void gv_gen_mel(uint32_t i)
+{
+    if (gv_src_mel(i)) return;                     /* (the source is the base or the bank) */
+    gv_gen_bar(i);
+    gv_mel_fill(i);
+}
+static void gv_gen_bar(uint32_t i)                 /* (into the track's first 16 steps) */
 {
     gv_trk_t *t = &gv.t[i];
     int L = (int)gv_L(), t3 = gv_t3(), t5 = gv_t5(), ty = GV_TTYPE[i], bass = ty == GT_BASS;
     int psy = bass && gv.style == 3u;              /* PSYTRANCE: the rolling bass */
     uint32_t c;
-    if (gv_src_mel(i)) return;                     /* (the source is the bank: its next melody) */
     gv_mel_clear(t);
     if (ty == GT_PAD) {
         if (gv_chance(35)) { t->st[0].n = 0; t->st[0].l4 = 32; t->st[8].n = (int8_t)(gv_chance(50) ? 0 : t3); t->st[8].l4 = 32; }
@@ -302,42 +331,76 @@ static void gv_gen_mel(uint32_t i)
         }
     }
 }
-/* VARIER for a melody: 3 or 4 touches in the scale, the motif stays */
-static void gv_vary_mel(uint32_t i)
+/* VARIER for a melody: 3 or 4 touches in the scale, the motif stays (one bar of it) */
+static void gv_vary_bar(uint32_t i, uint32_t bar)
 {
-    gv_trk_t *t = &gv.t[i];
+    gv_step_t *p = &gv.t[i].st[(bar * 16u) % GV_MAXS];
     int on[16], n = 0, k, mx = 2 * (int)gv_L();
-    for (k = 0; k < 16; k++) if (t->st[k].n >= 0) on[n++] = k;
-    if (!n) { gv_gen_mel(i); return; }
+    for (k = 0; k < 16; k++) if (p[k].n >= 0) on[n++] = k;
+    if (!n) return;
     for (k = 0; k < 3 + (int)gv_rnd(2); k++) {
-        gv_step_t *s = &t->st[on[gv_rnd((uint32_t)n)]];
+        gv_step_t *s = &p[on[gv_rnd((uint32_t)n)]];
         uint32_t r = gv_rnd(100);
         static const int8_t MV[4] = {-2, -1, 1, 2};
         if (r < 60) s->n = (int8_t)gv_clamp(s->n + GV_PICK(MV), 0, mx);
-        else if (r < 80) { int c = (int)(s - t->st), e; for (e = c + 1; e < 16; e++) if (t->st[e].n < 0 && !(e & 1)) { t->st[e].n = s->n; t->st[e].l4 = 4; break; } }
+        else if (r < 80) { int c = (int)(s - p), e; for (e = c + 1; e < 16; e++) if (p[e].n < 0 && !(e & 1)) { p[e].n = s->n; p[e].l4 = 4; break; } }
         else s->a ^= 1u;
     }
 }
+static void gv_vary_mel(uint32_t i)
+{
+    uint32_t k, any = 0, n = gv_tlen(i);
+    for (k = 0; k < n; k++) any |= gv.t[i].st[k].n >= 0;
+    if (!any) { gv_gen_mel(i); return; }
+    gv_vary_bar(i, gv_rnd(n / 16u));
+}
 static uint16_t gv_rs_acc;                       /* (the accents of the row being set: the base's motifs have some) */
-static void gv_rhythm_row_set(uint32_t row, uint16_t bits)
+static void gv_row_setb(uint32_t row, uint32_t bar, uint16_t bits)   /* one bar of a row (its accents: gv_rs_acc) */
 {
     track_t *t = &trk[GV_ROWTRK[row & 7u]];
-    uint32_t c;
+    uint32_t c, o = (bar * 16u) % NSTEP;
     for (c = 0; c < 16u; c++) {
-        step_t *s = &t->step[c];
+        step_t *s = &t->step[o + c];
         s->on = (bits >> (15u - c)) & 1u;
         s->acc = (gv_rs_acc >> (15u - c)) & 1u;
+        s->slide = s->tie = 0; s->rat = 0; s->cond = 0; s->nt = 0; s->micro = 0;
     }
-    t->p[P_SLEN] = 16;
+    t->p[P_SLEN] = (int16_t)gv_rlen();
 }
-static uint16_t gv_rhythm_row_get(uint32_t row)
+static void gv_rhythm_row_set(uint32_t row, uint16_t bits)           /* the same in every bar */
+{
+    uint32_t b;
+    for (b = 0; b < gv_rlen() / 16u; b++) gv_row_setb(row, b, bits);
+}
+static uint16_t gv_row_getb(uint32_t row, uint32_t bar)
 {
     const track_t *t = &trk[GV_ROWTRK[row & 7u]];
-    uint32_t c;
+    uint32_t c, o = (bar * 16u) % NSTEP;
     uint16_t b = 0;
     for (c = 0; c < 16u; c++)
-        if (t->step[c].on) b |= (uint16_t)(1u << (15u - c));
+        if (t->step[o + c].on) b |= (uint16_t)(1u << (15u - c));
     return b;
+}
+static uint16_t gv_rhythm_row_get(uint32_t row) { return gv_row_getb(row, 0); }
+/* the lengths: longer = what was there, repeated (nothing changes to the ear until something is generated or edited) */
+static void gv_set_rlen(uint32_t n)
+{
+    uint32_t r, c, o = gv_rlen();
+    n = gv_lenok(n);
+    for (r = 0; r < 8u; r++) {
+        track_t *t = &trk[GV_ROWTRK[r]];
+        for (c = o; c < n; c++) t->step[c] = t->step[c % o];
+        t->p[P_SLEN] = (int16_t)n;
+    }
+    gv.rlen = (uint8_t)n;
+}
+static void gv_set_tlen(uint32_t i, uint32_t n)
+{
+    gv_trk_t *t = &gv.t[i % GV_NT];
+    uint32_t c, o = gv_tlen(i);
+    n = gv_lenok(n);
+    for (c = o; c < n; c++) t->st[c] = t->st[c % o];
+    t->len = (uint8_t)n;
 }
 /* a new rhythm in the style: one of its templates, not the one playing */
 static void gv_gen_rhythm(void)
@@ -347,6 +410,11 @@ static void gv_gen_rhythm(void)
     gv.libk = 0;
     do k = gv_rnd(n); while (n > 1u && gv.tpl == k + 1u);
     for (r = 0; r < 8u; r++) gv_rhythm_row_set(r, GV_TPL[st][k][r]);
+    if (n > 1u && gv_rlen() > 16u) {               /* 2 bars: A B; 4 bars: A B A C (other templates of the style) */
+        uint32_t b, o1 = (k + 1u + gv_rnd(n - 1u)) % n, o2 = n > 2u ? (k + 1u + gv_rnd(n - 1u)) % n : o1;
+        for (b = 1; b < gv_rlen() / 16u; b += 2u)
+            for (r = 0; r < 8u; r++) gv_row_setb(r, b, GV_TPL[st][b == 1u ? o1 : o2][r]);
+    }
     gv.tpl = (uint8_t)(k + 1u);
 }
 /* one drum row from another template (the style's if it can) */
@@ -368,7 +436,7 @@ static void gv_vary_rhythm(void)
 {
     uint32_t k;
     for (k = 0; k < 4u; k++) {
-        uint32_t r = 3u + gv_rnd(5), c = gv_rnd(16);
+        uint32_t r = 3u + gv_rnd(5), c = gv_rnd(gv_rlen());
         step_t *s = &trk[GV_ROWTRK[r]].step[c];
         s->on ^= 1u;
     }
@@ -380,7 +448,7 @@ static void gv_set_scale(uint32_t sc)
     uint32_t i, c, a = gv.scale % GV_NSC, b = sc % GV_NSC, La = GV_SCL[a], Lb = GV_SCL[b];
     if (a == b) return;
     for (i = 0; i < GV_NT; i++)
-        for (c = 0; c < 16u; c++) {
+        for (c = 0; c < GV_MAXS; c++) {
             gv_step_t *s = &gv.t[i].st[c];
             int sem, d, best = 0, bd = 99;
             if (s->n < 0) continue;
@@ -749,6 +817,9 @@ static void gv_master_post(int32_t *ml, int32_t *mr, int32_t *wet, uint32_t n)
 }
 
 /* ------------------------------------------------------------------ sequencer (audio ISR) --- */
+/* the step playing, of the rhythm's and of a melodic track's own length */
+static uint32_t gv_rstep(void) { return ((uint32_t)(gv_bar ? gv_bar - 1u : 0u) * 16u + (gv_pos & 15u)) % gv_rlen(); }
+static uint32_t gv_tstep(uint32_t i) { return ((uint32_t)(gv_bar ? gv_bar - 1u : 0u) * 16u + (gv_pos & 15u)) % gv_tlen(i); }
 static void gv_start(void) { gv_pos = 0; gv_bar = 0; gv_cix = 0; gv_acc_s = 0; gv_stepn = 0; }
 static void gv_stop(void) { uint32_t i; for (i = 0; i < GV_NT; i++) gv_note_off(i); }
 static uint32_t gv_step_len(uint32_t pos)
@@ -776,8 +847,8 @@ static void gv_play_step(uint32_t pos)
         for (i = 0; i < 8u; i++) if (gv.rowar[i] && gv_bar > 1u && (gv_bar - 1u) % gv.rowar[i] == 0u) gv_regen_due |= 0x100u << i;
         co = gv_choff();
     }
-    for (i = 0; i < 8u; i++) if (trk[GV_ROWTRK[i]].step[pos & 15u].on) gv_hit_t[i] = song.tick;
-    if (trk[GV_ROWTRK[0]].step[pos & 15u].on && gv_track_heard(0)) gv_sck = 32767;   /* the kick: the sidechain ducks */
+    for (i = 0; i < 8u; i++) if (trk[GV_ROWTRK[i]].step[gv_rstep()].on) gv_hit_t[i] = song.tick;
+    if (trk[GV_ROWTRK[0]].step[gv_rstep()].on && gv_track_heard(0)) gv_sck = 32767;   /* the kick: the sidechain ducks */
     for (i = 0; i < GV_NT; i++) {
         const gv_trk_t *t = &gv.t[i];
         uint32_t c;
@@ -786,7 +857,7 @@ static void gv_play_step(uint32_t pos)
         c = t->hf ? ((pos >> 1) + ((gv_bar & 1u) ? 0u : 8u)) & 15u : pos;
         if (t->bw || t->rv || (gv_prv && gv_pon(0))) c = 15u - c;
         c = gv_loop(&gv_lpa[8u + i], &gv_lpc[8u + i], gv_plp && gv_pon(0) ? gv_plp : t->lp, c);
-        s = &t->st[c & 15u];
+        s = &t->st[(((uint32_t)(gv_bar ? gv_bar - 1u : 0u) >> (t->hf ? 1u : 0u)) * 16u + (c & 15u)) % gv_tlen(i)];   /* (the bar playing, of its 1, 2 or 4) */
         if (s->n >= 0 && t->sk && gv_rnd(127u) < t->sk) continue;
         if (gv_live_trk == 8u + i) continue;           /* a key held: the live note wins */
         if (s->n < 0) {
@@ -802,10 +873,15 @@ static int gv_drum_step(const track_t *t, uint16_t *idx, uint32_t cnt)
     for (r = 0; r < 8u && &trk[GV_ROWTRK[r]] != t; r++) {}
     if (r == 8u) return 1;
     if (gv.magic == GV_MAGIC && !gv_track_heard(r)) return 0;   /* RYTHME cut, a solo elsewhere */
-    if (gv.rhf[r]) { if (i & 1u) return 0; i = ((i >> 1) + (((cnt >> 4) & 1u) ? 8u : 0u)) & 15u; }
-    if (gv.rrv[r] || (gv_prv && gv_pon(1))) i = 15u - (i & 15u);
-    i = gv_loop(&gv_lpa[r], &gv_lpc[r], gv_plp && gv_pon(1) ? gv_plp : gv.rlp[r], i);
-    if (gv.rsk[r] && gv_rnd(127u) < gv.rsk[r]) return 0;
+    {   /* (the effects turn inside the bar playing: i = its 16 steps, bb = where the bar begins) */
+        uint32_t bb = i & ~15u;
+        i &= 15u;
+        if (gv.rhf[r]) { if (i & 1u) return 0; i = ((i >> 1) + (((cnt >> 4) & 1u) ? 8u : 0u)) & 15u; }
+        if (gv.rrv[r] || (gv_prv && gv_pon(1))) i = 15u - (i & 15u);
+        i = gv_loop(&gv_lpa[r], &gv_lpc[r], gv_plp && gv_pon(1) ? gv_plp : gv.rlp[r], i);
+        if (gv.rsk[r] && gv_rnd(127u) < gv.rsk[r]) return 0;
+        i = bb + (i & 15u);
+    }
     *idx = (uint16_t)i;
     return 1;
 }
@@ -837,7 +913,7 @@ static const uint8_t GV_WKEY[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21
 static uint32_t gv_kp_held;
 static void gv_rec_note(uint32_t i, int d)       /* REC: the note into the step playing (its degree, the chord taken off) */
 {
-    gv_step_t *s = &gv.t[i].st[gv_pos & 15u];
+    gv_step_t *s = &gv.t[i].st[gv_tstep(i)];
     if (!gv_recq || !song.playing) return;
     s->n = (int8_t)gv_clamp(d, 0, 2 * (int)gv_L()); s->l4 = 4; s->o4 = 0; s->a = 0; s->s = 0;
 }
@@ -849,7 +925,7 @@ static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left
         for (w = 0; w < 16u && GV_WKEY[w] != key; w++) {}
         if (!down) return;
         if (w < 16u || gv_kp == 2u) { uint32_t r = gv_kp == 2u ? (uint32_t)gv.sel & 7u : w & 7u; { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_live_hit = 0; } gv_hit_t[r] = song.tick;
-            if (gv_recq && song.playing) trk[GV_ROWTRK[r]].step[gv_pos & 15u].on = 1; }
+            if (gv_recq && song.playing) trk[GV_ROWTRK[r]].step[gv_rstep()].on = 1; }
         return;
     }
     i = (uint32_t)gv.sel - 8u;
@@ -879,7 +955,7 @@ static void gv_keys_isr(uint32_t cur, uint32_t ch)
         if (!(ch & bit)) continue;
         if (gv.sel < 8) {
             if ((cur & bit) && k < 8u) { { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[k]], 110); gv_live_hit = 0; } gv_hit_t[k] = song.tick; gv.sel = (int8_t)k;
-                if (gv_recq && song.playing) trk[GV_ROWTRK[k]].step[gv_pos & 15u].on = 1; }
+                if (gv_recq && song.playing) trk[GV_ROWTRK[k]].step[gv_rstep()].on = 1; }
         } else {
             uint32_t i = (uint32_t)gv.sel - 8u;
             if (cur & bit) {

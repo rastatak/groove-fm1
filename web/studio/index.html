@@ -106,6 +106,8 @@
     <button id="del">Suppr.</button>
     <label>Nom<input id="rname" type="text" maxlength="24"></label>
     <label>Auto‑random<select id="auto"><option value="0">Off</option><option value="4">4 mesures</option><option value="8">8 mesures</option><option value="16">16 mesures</option><option value="32">32 mesures</option><option value="64">64 mesures</option><option value="128">128 mesures</option></select></label>
+    <label title="Longueur du rythme : 1, 2 ou 4 mesures (16, 32 ou 64 pas). Un rythme généré remplit toutes ses mesures (A B A C)">Mesures<select id="rbars"><option value="1">1 (16 pas)</option><option value="2">2 (32 pas)</option><option value="4">4 (64 pas)</option></select></label>
+    <span id="rbsel" class="seg" title="La mesure affichée et éditée dans la matrice"></span>
     <label title="D’où viennent « Rythme random » et l’auto-random : générés comme avant, ou piochés dans ta base de rythmes (MIDI importés)">Random pioche dans<select id="rsrc"><option value="gen">Génération</option><option value="db">Base de rythmes</option><option value="mix">Les deux</option></select></label>
   </div>
   <div id="bank"></div>
@@ -144,6 +146,9 @@
   <div class="bar">
     <button id="mrnd" class="hot">🎲 Générer dans la gamme</button>
     <button id="mvary" title="Quelques retouches dans la gamme, comme « Varier » pour le rythme">Varier</button>
+    <label title="Longueur de cette piste : 1, 2 ou 4 mesures (16, 32 ou 64 pas). Une mélodie générée remplit toutes ses mesures (A, A varié, B, A varié)">Mesures<select id="tbars"><option value="1">1 (16 pas)</option><option value="2">2 (32 pas)</option><option value="4">4 (64 pas)</option></select></label>
+    <span id="tbsel" class="seg" title="La mesure affichée et éditée"></span>
+    <label title="D’où viennent les nouvelles mélodies : générées dans la gamme, ou, pour les basses, les lignes de basse du style">Générer depuis<select id="msrc"><option value="gen">Génération</option><option value="base">Base (basses du style)</option></select></label>
     <button id="mall" title="Régénère toutes les pistes non coupées, sur les mêmes accords (remplace leurs motifs)">🎼 Tout générer</button>
     <button id="mclr">Vider</button>
     <label title="Régénère la mélodie de cette piste toutes les N mesures pendant la lecture">Auto‑random<select id="mauto"><option value="0">Off</option><option value="4">4 mesures</option><option value="8">8 mesures</option><option value="16">16 mesures</option><option value="32">32 mesures</option><option value="64">64 mesures</option><option value="128">128 mesures</option></select></label>

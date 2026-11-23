@@ -12,7 +12,7 @@ def to_json(s):
 import subprocess
 _dj=sys.argv[2] if len(sys.argv)>2 else '/home/claude/app/data.js'
 import os
-D=json.loads(subprocess.check_output(['node','-e',open(_dj).read()+';'+open(os.path.join(os.path.dirname(_dj),'rdbpack.js')).read()+';process.stdout.write(JSON.stringify({SCALES,SCP,STYLES,PROGS,RH,RDB_PACK,RDB_G2S}))']))
+D=json.loads(subprocess.check_output(['node','-e',open(_dj).read()+';'+open(os.path.join(os.path.dirname(_dj),'rdbpack.js')).read()+';process.stdout.write(JSON.stringify({SCALES,SCP,STYLES,PROGS,RH,RDB_PACK,RDB_G2S,BASSB,STYBAS}))']))
 SCALES,SCP,STY,PROGS,RH=D['SCALES'],D['SCP'],D['STYLES'],D['PROGS'],D['RH']
 sc_names=list(SCALES)
 o=['/* GENERATED from the web app (data.js) by tools/gen_gvdata.py: styles, scales, chords, generator rhythms */']
@@ -53,5 +53,20 @@ o.append('#define GV_NLIB %d'%len(PK))
 o.append('#define GV_NLG %d'%len(gn))
 o.append('static const char *const GV_LGN[GV_NLG] = {%s};'%','.join(json.dumps(g.upper()) for g in gn))
 o.append('static const struct { uint8_t g, bpm; uint32_t sm; uint16_t on[8], ac[8]; } GV_LIB[GV_NLIB] = {%s}; /* genre, tempo, styles (bits; in decimal: the build check takes some hex values for chip addresses), hits, accents */'%','.join('{%d,%d,%du,{%s},{%s}}'%(gn.index(e['genre']),e['bpm'],smask(e['genre']),','.join('0x%04X'%v for v in masks(e)[0]),','.join('0x%04X'%v for v in masks(e)[1])) for e in PK))
+# the bass base (rdbpack.js): one bar each, in scale degrees; a step = its symbol (255 none), its length in steps
+BB,SB=D['BASSB'],D['STYBAS']
+SYM='01t3qxo'
+def bass(e):
+    n=[255]*16;l=[0]*16;last=-1
+    for c,ch in enumerate(e['n']):
+        if ch=='=' and last>=0: l[last]+=1
+        elif ch in SYM: n[c]=SYM.index(ch);l[c]=1;last=c
+        else: last=-1
+    fl=e['f']
+    return n,l,int(''.join('1' if x in 'ab' else '0' for x in fl),2),int(''.join('1' if x in 'sb' else '0' for x in fl),2)
+o.append('#define GV_NBAS %d'%len(BB))
+o.append('static const char *const GV_BASN[GV_NBAS] = {%s};'%','.join(json.dumps(e['name'].upper()) for e in BB))
+o.append('static const struct { uint8_t n[16], l[16]; uint16_t ac, sl; } GV_BAS[GV_NBAS] = {%s}; /* symbol 0 root 1 2nd 2 third 3 4th 4 fifth 5 7th 6 octave (255 none), steps held, accents, slides */'%','.join('{{%s},{%s},0x%04X,0x%04X}'%(','.join(map(str,bass(e)[0])),','.join(map(str,bass(e)[1])),bass(e)[2],bass(e)[3]) for e in BB))
+o.append('static const uint8_t GV_STBAS[GV_NSTY][2] = {%s}; /* each style\'s two bass lines */'%','.join('{%d,%d}'%(SB[n][0]-1,SB[n][1]-1) for n in st))
 open(sys.argv[1],'w').write('\n'.join(o)+'\n')
 print(len(st),'styles,',len(sc_names),'scales')
