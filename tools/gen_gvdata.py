@@ -52,6 +52,6 @@ assert len(st)<=32
 o.append('#define GV_NLIB %d'%len(PK))
 o.append('#define GV_NLG %d'%len(gn))
 o.append('static const char *const GV_LGN[GV_NLG] = {%s};'%','.join(json.dumps(g.upper()) for g in gn))
-o.append('static const struct { uint8_t g, bpm; uint32_t sm; uint16_t on[8], ac[8]; } GV_LIB[GV_NLIB] = {%s}; /* genre, tempo, styles (bits), hits, accents */'%','.join('{%d,%d,0x%Xu,{%s},{%s}}'%(gn.index(e['genre']),e['bpm'],smask(e['genre']),','.join('0x%04X'%v for v in masks(e)[0]),','.join('0x%04X'%v for v in masks(e)[1])) for e in PK))
+o.append('static const struct { uint8_t g, bpm; uint32_t sm; uint16_t on[8], ac[8]; } GV_LIB[GV_NLIB] = {%s}; /* genre, tempo, styles (bits; in decimal: the build check takes some hex values for chip addresses), hits, accents */'%','.join('{%d,%d,%du,{%s},{%s}}'%(gn.index(e['genre']),e['bpm'],smask(e['genre']),','.join('0x%04X'%v for v in masks(e)[0]),','.join('0x%04X'%v for v in masks(e)[1])) for e in PK))
 open(sys.argv[1],'w').write('\n'.join(o)+'\n')
 print(len(st),'styles,',len(sc_names),'scales')

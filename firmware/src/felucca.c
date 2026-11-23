@@ -128,6 +128,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 #include "storage.c"
 #endif
 #include "project.c"
+#include "groove_store.c"     /* Groove: its bank kept in flash */
 #if FELUCCA_OTA
 #include "ota.c"
 static uint32_t ota_now_ms(void) { return fm1_ms; }

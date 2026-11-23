@@ -189,3 +189,4 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 }
 #include "../firmware/src/storage.c"
 #include "../firmware/src/project.c"
+#include "../firmware/src/groove_store.c"     /* Groove: its bank kept in flash */

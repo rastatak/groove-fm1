@@ -73,6 +73,10 @@ int main(void)
     sim_groove = 1;
     sim_init(1);
     run(FS / 10u);
+    check("power-on: the intro is on", gu.intro_t != 0);
+    run(FS / 2u); shot("intro1"); run(FS * 3u / 2u); shot("intro2");
+    { uint8_t pg = gu.page; tap_btn(B_SEQ); check("a key during the intro: it ends, the key does nothing else", gu.intro_t == 0 && gu.page == pg); }
+    gu.intro_t = fm1_ms; run(FS * 7u / 2u); check("left alone: the intro ends by itself after 3.2 s", gu.intro_t == 0);
     check("Groove owns the panel at power-on", gv_on == 1);
     check("a style, a rhythm and two melodies at power-on", gv.t[0].st[0].n >= -1 && gv.tpl > 0);
     for (i = 0; i < 16u; i++) mel += gv.t[0].st[i].n >= 0;
@@ -453,9 +457,15 @@ int main(void)
         gu.kp = 0; sim_enc(EN_ALGO, 1); run(FS / 20u); check("SEQ, ALGORITHM right: JEU (the keyboard plays)", gu.kp == 1 && gv_kp == 1 && gu.page == GP_MEL);
         shot("seq_jeu");
         sim_enc(EN_ALGO, -1); run(FS / 20u); check("SEQ, ALGORITHM left: EDITION", gu.kp == 0 && gv_kp == 0);
-        { uint8_t c0; uint16_t ids[64]; uint32_t cur; gv_snd_ids(ids, &cur); gv_sndcur[1] = (uint8_t)ids[0]; c0 = gv_sndcur[1]; tap_btn(B_OCTUP); check("SEQ MELODIE, OCT+: the track's next sound", gv_sndcur[1] != c0); tap_btn(B_OCTDN); check("OCT-: back", gv_sndcur[1] == c0); }
+        gv_set_style(8); gv.libk = 0;                  /* SEQ, OCT- / OCT+: the base's motifs for the style; the bank's melodies */
         while (gu.page != GP_RYT) tap_btn(B_SEQ);
-        gv.sel = 2; pre = trk[GV_ROWTRK[2]].pre; tap_btn(B_OCTUP); check("SEQ RYTHME, OCT+: the CLAP's next sound", trk[GV_ROWTRK[2]].pre != pre);
+        tap_btn(B_OCTUP); check("SEQ RYTHME, OCT+: a TRAP motif of the base", gv.libk && !strcmp(GV_LGN[GV_LIB[gv.libk - 1u].g], "TRAP"));
+        { uint8_t k0 = gv.libk; tap_btn(B_OCTUP); check("OCT+ again: the other TRAP motif", gv.libk != k0 && !strcmp(GV_LGN[GV_LIB[gv.libk - 1u].g], "TRAP"));
+          tap_btn(B_OCTDN); check("OCT-: back to the first", gv.libk == k0); }
+        while (gu.page != GP_MEL) tap_btn(B_SEQ);
+        gv.sel = 9; for (k = 0; k < 16u; k++) { gu.mb[3][k].n = 5; gu.mb[3][k].l4 = 4; } gu.mbu = 1u << 3; gu.mcur = 0;
+        tap_btn(B_OCTUP); check("SEQ MELODIE, OCT+: the bank's melody on the track", gv.t[1].st[7].n == 5 && gu.mcur == 3u);
+        gu.mbu = 0; gv_set_style(0);
         tap_btn(B_HOME);
     }
     {   /* the sources: PRESETS on LIVE RYTHME / LIVE MELODIE; the built-in base, the bank; the 32 styles */
@@ -498,6 +508,33 @@ int main(void)
         gu.sty = 25; run(FS / 20u); shot("sty_dnb"); gu.sty = 29; run(FS / 20u); shot("sty_reggaeton");
         gv_set_style(25); gv_gen_all(); check("DRUM N BASS: 174 BPM, a rhythm, melodies", song.g[G_BPM] == 174 && gv_rhythm_row_get(0) != 0);
         gv_set_style(0); gv_gen_all(); tap_btn(B_HOME);
+    }
+    {   /* the base's page (EDIT, SAVE), the settings, SAVE held, the bank kept in flash */
+        uint32_t k, r; uint16_t keep[8];
+        tap_btn(B_HOME); gv.sel = 0; tap_btn(B_SAVE); while (gu.page != GP_LIBR) tap_btn(B_SAVE);
+        check("SAVE x4: BASE RYT", gu.page == GP_LIBR && gu.btn == B_SAVE);
+        gu.lcur = 0; sim_enc(EN_SELECT, 1); run(FS / 20u); check("SELECT: the next motif", gu.lcur == 1u);
+        sim_enc(EN_PRESET, 1); run(FS / 20u); check("PRESETS: the next genre's first motif", GV_LIB[gu.lcur].g != GV_LIB[1].g && (gu.lcur == 0u || GV_LIB[gu.lcur - 1u].g != GV_LIB[gu.lcur].g));
+        tap_btn(B_OCTDN); check("OCT-: that motif plays", gv.libk == gu.lcur + 1u && gv_rhythm_row_get(0) == GV_LIB[gu.lcur].on[0]);
+        shot("libr");
+        gu.rbu = 0; gu.mbu = 0;
+        hold_btn(B_SAVE); check("SAVE held: the rhythm kept in the bank's first free slot", gu.rbu == 1u && gu.rb[0][0] == gv_rhythm_row_get(0) && gu.page == GP_LIBR);
+        for (r = 0; r < 8u; r++) keep[r] = gu.rb[0][r];
+        gu.lcur = (uint8_t)GV_NLIB; tap_key(STEP_KEY[8]); check("the list's BANQUE 1, key 9: it plays", gu.rcur == 0u && gv.libk == (uint8_t)0 + 0 && gv_rhythm_row_get(3) == keep[3]);
+        tap_btn(B_EDIT); while (gu.page != GP_LIBR) tap_btn(B_EDIT); check("EDIT: BASE RYT too", gu.btn == B_EDIT);
+        tap_btn(B_EDIT); check("EDIT again: the kept melodies", gu.page == GP_BKM);
+        gv.sel = 9; hold_btn(B_SAVE); check("SAVE held there: the SYNTHE's melody kept", gu.mbu == 1u && gu.mb[0][0].n == gv.t[1].st[0].n);
+        tap_btn(B_EDIT); check("EDIT again: REGLAGES", gu.page == GP_GSET);
+        gv.rsrc = 0; sim_enc(EN_K1, 1); run(FS / 20u); check("REGLAGES, KNOB 1: the rhythm's source", gv.rsrc == 1u);
+        sim_enc(EN_K3, 1); run(FS / 20u); check("KNOB 3: the melody's source", gv.msrc == 1u);
+        shot("gset");
+        if (sim_playing()) tap_btn(B_PLAY);
+        run(FS * 3u / 2u);                             /* stopped a second: the bank is written */
+        gu.rbu = gu.mbu = 0; memset(gu.rb, 0, sizeof gu.rb); memset(gu.mb, 0, sizeof gu.mb); gv.rsrc = gv.msrc = 0;
+        gv_store_load();
+        check("the bank back from flash: the rhythm, the melody, the sources", gu.rbu == 1u && gu.mbu == 1u && gu.rb[0][3] == keep[3] && gv.rsrc == 1u && gv.msrc == 1u);
+        gv.rsrc = gv.msrc = 0; gu.rbu = gu.mbu = 0; run(FS * 3u / 2u);
+        tap_btn(B_HOME);
     }
     {   /* the PIANO, and SAVE on the SON page: the sound kept */
         uint16_t ids[64]; uint32_t cur, n, k, found = 0; uint8_t cut; double r1, r2;
