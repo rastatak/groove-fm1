@@ -106,8 +106,18 @@
     <button id="del">Suppr.</button>
     <label>Nom<input id="rname" type="text" maxlength="24"></label>
     <label>Auto‑random<select id="auto"><option value="0">Off</option><option value="4">4 mesures</option><option value="8">8 mesures</option><option value="16">16 mesures</option><option value="32">32 mesures</option><option value="64">64 mesures</option><option value="128">128 mesures</option></select></label>
+    <label title="D’où viennent « Rythme random » et l’auto-random : générés comme avant, ou piochés dans ta base de rythmes (MIDI importés)">Random pioche dans<select id="rsrc"><option value="gen">Génération</option><option value="db">Base de rythmes</option><option value="mix">Les deux</option></select></label>
   </div>
   <div id="bank"></div>
+  <div class="bar" id="rdb">
+    <b>BASE DE RYTHMES</b>
+    <label>Genre<select id="rdbg"></select></label>
+    <button id="rdbi" class="hot">📥 Importer MIDI / ZIP</button><input id="rdbf" type="file" accept=".mid,.midi,.zip" multiple hidden>
+    <button id="rdba">➕ Ajouter ce rythme</button>
+    <button id="rdbx">📤 Exporter ce rythme (.mid)</button>
+    <button id="rdbxa">📤 Exporter la base (.mid)</button>
+  </div>
+  <div id="rdbl"></div>
   <div class="scroll"><div id="drums" class="grid"></div></div>
   <div id="dfx" class="bar"></div>
   <div class="bar">
@@ -179,6 +189,8 @@
 <script src="midi.js"></script>
 <script src="lib.js"></script>
 <script src="app.js"></script>
+<script src="rdbpack.js"></script>
+<script src="rdb.js"></script>
 <script src="scenes.js"></script>
 <script src="fm1.js"></script>
 <script>if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});</script>

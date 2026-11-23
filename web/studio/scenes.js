@@ -210,6 +210,13 @@ tribe:(g,w,h,t,b,k)=>{g.fillStyle='#0a0614';g.fillRect(0,0,w,h);for(let i=0;i<30
   [[-96,0],[96,0]].forEach(([dx])=>{g.fillStyle='#4a2a14';g.fillRect(fx+dx-8,fy-16,16,16);g.fillStyle='#c9a46a';g.beginPath();g.ellipse(fx+dx,fy-16-k*2,8,2.5,0,0,7);g.fill();});}
 };
 const rr0=(g,x,y,w,h,c)=>{g.fillStyle=c;g.beginPath();g.roundRect(x,y,w,h,3);g.fill();};
+/* les 15 styles de la base de rythmes : la scène d’un style voisin, ses couleurs tournées ; l’alien danse toujours devant */
+const STYALT={'hard techno':['schranz',-25],'melodic techno':['trance',150],'tech house':['house',40],'deep house':['dub',160],'prog house':['trance',70],'bass house':['minimal',200],
+  'nu disco':['acid house',-60],'edm':['trance',-40],'drum n bass':['tekno',170],'jungle':['tribe',80],'breakbeat':['hip-hop',120],'uk garage':['trap',60],'reggaeton':['tribe',-20],
+  'boom bap':['hip-hop',25],'lo-fi':['dub',-110]};
+Object.keys(STYALT).forEach(n=>{const[b,hue]=STYALT[n];STYLESC[n]=(g,w,h,t,bb,k)=>{g.save();try{g.filter='hue-rotate('+hue+'deg)';}catch(e){}(STYLESC[b]||STYLESC.techno)(g,w,h,t,bb,k);g.restore();};});
+Object.assign(MONMV,{'hard techno':'jump','melodic techno':'sway','tech house':'slide','deep house':'sway','prog house':'wave','bass house':'bounce','nu disco':'spin','edm':'arms',
+  'drum n bass':'jump','jungle':'bounce','breakbeat':'slide','uk garage':'bounce','reggaeton':'sway','boom bap':'wave','lo-fi':'sway'});
 function drawStyle(g,st,w,h,ar){const t=performance.now()/1000,beat=60/(STYLES[st]&&STYLES[st].bpm||S.bpm||120),b=playing?t/(60/S.bpm):t/beat,k=Math.max(0,1-(b%1)*3);
   (STYLESC[st]||STYLESC.techno)(g,w,h,t,b,k);
   if(S.mascot!==false){const mp=MONPOS[st]||[.86,1,.6];drawMonster(g,w*mp[0],h*mp[1]-3,h*mp[2]/140,b,k,MONMV[st]||'bob',ar);}}

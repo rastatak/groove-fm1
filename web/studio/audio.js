@@ -165,7 +165,7 @@ function drum(r,t,vel,gm=1,rv=0){
   const row=S.rows[r];if(!aud('r',r)||!ctx)return;HIT['r'+r]=t+rv;
   if(r===0)S.tracks.forEach((tr,i)=>{const g=tr.sc&&V[i]&&V[i].b.sg.gain,w=Math.max(t+rv,ctx.currentTime);if(g){g.cancelScheduledValues(w);g.setTargetAtTime(1-tr.sc,w,.004);g.setTargetAtTime(1,w+.03,.09);}});   /* SIDECHAIN : le kick creuse la piste */
   const mo=rOut(r);if(mo&&midiDrumOut(r,t+rv,vel,gm)&&mo===1)return;
-  const g=ctx.createGain();g.gain.value=(vel>1?1.25:.85)*gm;g.connect(rowG[r]||drumBus.i);
+  const g=ctx.createGain();g.gain.value=(vel===3?.4:vel>1?1.25:.85)*gm;   /* 2 = accent · 3 = note fantôme (douce) */g.connect(rowG[r]||drumBus.i);
   const b=bufs[row.smp];
   if(b){const s=ctx.createBufferSource();
     if(rv){const x=Math.min(b.duration,rv);s.buffer=rbuf(row.smp);s.connect(g);s.start(t+rv-x,b.duration-x);return;}

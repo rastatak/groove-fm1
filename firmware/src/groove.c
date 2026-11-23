@@ -81,6 +81,11 @@ typedef struct {                   /* everything Groove keeps (gv_save: flash) *
     uint8_t eq[3];                 /* the general equaliser: lows, mids, highs (64 flat, 0 cut, 127 +6 dB) */
     uint8_t mf, hp, mq, xs, xd, xr;  /* the whole mix (web: FILTRE DJ): low-pass (127 open), high-pass (0 open), resonance,
                                     * disto, echo and reverb sends */
+    uint8_t dtr, dap, drm, dwf, dsat, dfo;   /* the drums' own (all 8 rows together, on their mix): tremolo, auto-pan, ring
+                                    * modulation, wavefolder, saturation, vowel */
+    uint8_t rsrc, msrc;            /* where a new rhythm / a new melody comes from: 0 the generator, then the built-in
+                                    * base (the style's genres, every genre) and the bank (SAVE) - gv_src_rhythm, gv_src_mel */
+    uint8_t libk;                  /* the base's last motif + 1 (0: none) */
     uint8_t nr;                    /* the noise riser (one for the whole mix): louder and brighter as it goes up */
     uint8_t algo;                  /* ALGORITHM off the LIVE pages: 0 pages 1 BPM 2 FILTRE DJ 3 VOLUME 4 RYTHMES 5 SWING */
     gv_trk_t t[GV_NT];
@@ -137,7 +142,8 @@ static volatile uint8_t gv_regen_due;           /* ISR -> main: bit 0 a style au
 static const uint32_t GV_SEMI[25] = {32768, 34716, 36781, 38968, 41285, 43740, 46341, 49097, 52016, 55109, 58386, 61858, 65536, 69433, 73562, 77936, 82570, 87480, 92682, 98193, 104032, 110218, 116772, 123715, 131072};   /* 2^(k/12) Q16, k -12..12 */
 static const uint8_t GV_F1[5] = {68, 52, 45, 55, 47}, GV_F2[5] = {77, 88, 91, 68, 65};   /* A E I O U: the two formants, as cutoffs */
 static uint32_t gv_vbp, gv_nzs = 0x1234567u;    /* the vibrato's phase (~6 Hz), the noise's state */
-static int32_t gv_nzl;
+static int32_t gv_nzl, gv_df1l, gv_df1b, gv_df2l, gv_df2b;   /* (the drums' vowel filter) */
+static uint32_t gv_drph;                        /* (the drums' ring modulation: its carrier, 150 Hz) */
 static int32_t gv_sck;                         /* sidechain: the kick's envelope, Q15 (32767 at the hit, then back to 0) */
 static uint8_t gv_scauto;                      /* the sidechain was set by the generator (TRAP, DRILL): another style clears it */
 static volatile uint32_t gv_hit_t[14];          /* last hit per track (song.tick), the screen's flashes */
@@ -198,12 +204,15 @@ static void gv_mel_clear(gv_trk_t *t)
 static uint8_t gv_l4(uint32_t q) { return (uint8_t)(q < 1u ? 1u : q > 64u ? 64u : q); }
 /* a new melody for track i: rhythm on the grid (straight or syncopated as the scale likes), chord notes on the beats,
  * passing notes between, the half bar repeated, an ending that resolves; arpeggios on synths; pads hold the chord */
+static int gv_src_rhythm(void);                /* (groove_ui.c: the base, the bank; 0 = the generator's turn) */
+static int gv_src_mel(uint32_t i);
 static void gv_gen_mel(uint32_t i)
 {
     gv_trk_t *t = &gv.t[i];
     int L = (int)gv_L(), t3 = gv_t3(), t5 = gv_t5(), ty = GV_TTYPE[i], bass = ty == GT_BASS;
     int psy = bass && gv.style == 3u;              /* PSYTRANCE: the rolling bass */
     uint32_t c;
+    if (gv_src_mel(i)) return;                     /* (the source is the bank: its next melody) */
     gv_mel_clear(t);
     if (ty == GT_PAD) {
         if (gv_chance(35)) { t->st[0].n = 0; t->st[0].l4 = 32; t->st[8].n = (int8_t)(gv_chance(50) ? 0 : t3); t->st[8].l4 = 32; }
@@ -309,6 +318,7 @@ static void gv_vary_mel(uint32_t i)
         else s->a ^= 1u;
     }
 }
+static uint16_t gv_rs_acc;                       /* (the accents of the row being set: the base's motifs have some) */
 static void gv_rhythm_row_set(uint32_t row, uint16_t bits)
 {
     track_t *t = &trk[GV_ROWTRK[row & 7u]];
@@ -316,7 +326,7 @@ static void gv_rhythm_row_set(uint32_t row, uint16_t bits)
     for (c = 0; c < 16u; c++) {
         step_t *s = &t->step[c];
         s->on = (bits >> (15u - c)) & 1u;
-        s->acc = 0;
+        s->acc = (gv_rs_acc >> (15u - c)) & 1u;
     }
     t->p[P_SLEN] = 16;
 }
@@ -333,6 +343,8 @@ static uint16_t gv_rhythm_row_get(uint32_t row)
 static void gv_gen_rhythm(void)
 {
     uint32_t st = gv.style % GV_NSTY, n = GV_NTP[st], k, r;
+    if (gv_src_rhythm()) { gv.tpl = 0; return; }   /* (the source is the base or the bank) */
+    gv.libk = 0;
     do k = gv_rnd(n); while (n > 1u && gv.tpl == k + 1u);
     for (r = 0; r < 8u; r++) gv_rhythm_row_set(r, GV_TPL[st][k][r]);
     gv.tpl = (uint8_t)(k + 1u);
@@ -340,12 +352,16 @@ static void gv_gen_rhythm(void)
 /* one drum row from another template (the style's if it can) */
 static void gv_gen_row(uint32_t row)
 {
-    uint16_t now = gv_rhythm_row_get(row), c[GV_NSTY * GV_NTPL];
-    uint32_t n = 0, s, k, st = gv.style % GV_NSTY;
-    for (k = 0; k < GV_NTP[st]; k++) if (GV_TPL[st][k][row] && GV_TPL[st][k][row] != now) c[n++] = GV_TPL[st][k][row];
-    if (!n)
-        for (s = 0; s < GV_NSTY; s++) for (k = 0; k < GV_NTP[s]; k++) if (GV_TPL[s][k][row] && GV_TPL[s][k][row] != now) c[n++] = GV_TPL[s][k][row];
-    if (n) gv_rhythm_row_set(row, c[gv_rnd(n)]);
+    uint16_t now = gv_rhythm_row_get(row), got = 0;
+    uint32_t n = 0, s, k, st = gv.style % GV_NSTY, pass;
+    for (pass = 0; pass < 2u && !n; pass++)        /* the style's templates first, then every style's (one kept at random
+                                                    * as they pass: no list on the stack) */
+        for (s = pass ? 0u : st; s < (pass ? (uint32_t)GV_NSTY : st + 1u); s++)
+            for (k = 0; k < GV_NTP[s]; k++) {
+                uint16_t v = GV_TPL[s][k][row];
+                if (v && v != now && gv_rnd(++n) == 0u) got = v;
+            }
+    if (n) gv_rhythm_row_set(row, got);
     gv.tpl = 0;
 }
 static void gv_vary_rhythm(void)
@@ -505,6 +521,45 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
     { uint32_t a = ((gv_pos & 7u) * sn + gv_acc_s) * (0x20000000u / (sn ? sn : 1u));
       aptri = (int32_t)((a < 0x80000000u ? a : ~a) >> 15) - 32768;     /* a triangle, -32768..32767 */
       gv_vbp += n * 584318u; vbtri = (int32_t)((gv_vbp < 0x80000000u ? gv_vbp : ~gv_vbp) >> 15) - 32768; }
+    if (gv.dtr | gv.dap | gv.drm | gv.dwf | gv.dsat | gv.dfo) {   /* the drums' effects: the mix holds only them yet */
+        int32_t pan = gv_clamp(64 + ((aptri * gv.dap) >> 16), 0, 127), pl = pan > 64 ? (127 - pan) * 2 : 128, pr = pan < 64 ? pan * 2 : 128;
+        int32_t tra = gv.dtr * 258, rmk = gv.drm * 256, wfg = 8 + gv.dwf, stg = 32 + gv.dsat;
+        uint32_t trp = ((gv_pos & 1u) * sn + gv_acc_s) * trinc, f1k = 0, f2k = 0;
+        if (gv.dfo) {
+            uint32_t ps8 = ((uint32_t)gv.dfo - 1u) * 4u * 256u / 126u, ix = ps8 >> 8 > 3u ? 3u : ps8 >> 8, fr = ps8 - (ix << 8);
+            f1k = (uint32_t)gv_fcoef((int32_t)(GV_F1[ix] * (256u - fr) + GV_F1[ix + 1u] * fr));
+            f2k = (uint32_t)gv_fcoef((int32_t)(GV_F2[ix] * (256u - fr) + GV_F2[ix + 1u] * fr));
+        }
+        for (j = 0; j < n; j++) {
+            int32_t x[2], c2;
+            x[0] = gv_clamp(ml[j], -200000, 200000); x[1] = gv_clamp(mr[j], -200000, 200000);   /* (a loud drum: about 30000) */
+            if (f1k) {                                 /* (the vowel: on the two sides together) */
+                int32_t in = gv_clamp((x[0] + x[1]) >> 1, -60000, 60000) >> 3, h;
+                gv_df1l += ((int32_t)f1k * gv_df1b) >> 15; h = in - gv_df1l - (gv_df1b >> 3); gv_df1b = gv_clamp(gv_df1b + (((int32_t)f1k * h) >> 15), -150000, 150000);
+                gv_df2l += ((int32_t)f2k * gv_df2b) >> 15; h = in - gv_df2l - (gv_df2b >> 3); gv_df2b = gv_clamp(gv_df2b + (((int32_t)f2k * h) >> 15), -150000, 150000);
+                gv_df1l = gv_clamp(gv_df1l, -150000, 150000); gv_df2l = gv_clamp(gv_df2l, -150000, 150000);
+                x[0] = x[1] = gv_df1b + gv_df2b;
+            }
+            gv_drph += 14608550u;
+            c2 = (int32_t)(gv_drph >> 16) - 32768; c2 = c2 < 0 ? 2 * c2 + 32767 : 32767 - 2 * c2;
+            for (k = 0; k < 2u; k++) {
+                int32_t y = x[k];
+                if (rmk) y += (int32_t)(((int64_t)((int32_t)(((int64_t)y * c2) >> 15) - y) * rmk) >> 15);
+                if (gv.dwf) { uint32_t u = (uint32_t)(((y * wfg) >> 3) + 32768) & 0x1FFFFu; y = u < 65536u ? (int32_t)u - 32768 : 98304 - (int32_t)u; }
+                if (gv.dsat) {
+                    int32_t a;
+                    y = (y * stg) >> 5; a = y < 0 ? -y : y;
+                    if (a > 12000) a = 12000 + ((a - 12000) >> 1);
+                    if (a > 24000) a = 24000 + ((a - 24000) >> 2);
+                    if (a > 30000) a = 30000 + ((a - 30000) >> 4);
+                    y = ((y < 0 ? -a : a) * (256 - gv.dsat)) >> 8;
+                }
+                if (tra) { uint32_t tp = trp + j * trinc; y = (int32_t)(((int64_t)y * (32768 - ((int32_t)((tp < 0x80000000u ? tp : ~tp) >> 16) * tra >> 15))) >> 15); }
+                x[k] = y;
+            }
+            ml[j] = (x[0] * pl) >> 7; mr[j] = (x[1] * pr) >> 7;
+        }
+    }
     if (gv.nr) {                                   /* NOISE RISER: one for the mix; up = louder and brighter, a little reverb */
         int32_t k = 300 + gv.nr * gv.nr * 2, lv = gv.nr * gv.nr;
         for (j = 0; j < n; j++) {

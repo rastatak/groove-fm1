@@ -82,3 +82,11 @@ Chaque piste a sa sortie (interne / FM‑1 / les deux), son canal (1‑16) et, p
 ## Couleurs
 
 Chaque piste a la couleur de sa catégorie partout : Kick rouge, Snare orange, Clap rose, Hat F. jaune, Hat O. vert citron, Perc et Rim vert, Low corail, Basse bleu, Synthé cyan, Nappe violet, FX magenta.
+
+## Base de rythmes (MIDI)
+
+Onglet **Rythme** → **BASE DE RYTHMES** :
+- **Importer MIDI / ZIP** : des fichiers `.mid` de batterie (carte General MIDI) ou un `.zip` qui en contient. Chaque mesure différente devient un motif, rangé par genre (le nom du dossier). Les notes fortes deviennent des accents, les très douces des notes fantômes.
+- **Ajouter ce rythme** : met le rythme affiché dans la base. **Exporter ce rythme / la base (.mid)** : fichier MIDI, canal 10.
+- **Random pioche dans** : *Génération* (comme avant), *Base de rythmes*, ou *Les deux*. Ce réglage vaut pour « Rythme random » et pour l'auto-random. Avec un genre choisi dans la liste, la pioche reste dans ce genre ; sinon elle prend les motifs du style en cours, ou toute la base.
+- La base est gardée dans ce navigateur, à part du projet. Rien n'est envoyé ni publié.

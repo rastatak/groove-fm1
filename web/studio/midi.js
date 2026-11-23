@@ -39,7 +39,7 @@ function midiNoteOut(i,tr,d,t,dur,acc,gm){if(!midiOk())return false;const ch=tCh
   if(dur>0)ns.forEach(n=>msend([0x80|ch,n,0],t+Math.max(.03,dur)));else MIDI.held[i]=ns;
   return true;}
 function midiOff(i,t){const h=MIDI.held[i];if(!h||!midiOk())return;delete MIDI.held[i];h.forEach(n=>msend([0x80|(tCh(i)-1),n,0],t));}
-function midiDrumOut(r,t,vel,gm){if(!midiOk())return false;const ch=rCh(r)-1,n=rNote(r),v=Math.max(1,Math.min(127,Math.round((vel>1?120:90)*(gm||1))));
+function midiDrumOut(r,t,vel,gm){if(!midiOk())return false;const ch=rCh(r)-1,n=rNote(r),v=Math.max(1,Math.min(127,Math.round((vel===3?55:vel>1?120:90)*(gm||1))));
   msend([0x90|ch,n,v],t);msend([0x80|ch,n,0],t+.06);return true;}
 // Horloge : 6 impulsions par double-croche (24 par noire)
 function midiClock(t,sd){if(!S.mclk||clkExt()||!midiOk())return;for(let k=0;k<6;k++)msend([0xF8],t+k*sd/6);}

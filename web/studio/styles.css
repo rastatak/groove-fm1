@@ -111,3 +111,13 @@ button:disabled{opacity:.4;cursor:default}
 #rev,#drev{touch-action:none;user-select:none;-webkit-user-select:none}
 #rev.on,#drev.on{background:var(--c);border-color:var(--c);color:#111;box-shadow:0 0 14px rgba(53,227,196,.7)}
 #bw.on{background:var(--y);border-color:var(--y);color:#111}
+/* Base de rythmes (MIDI importés) : notes fantômes de la matrice, liste des motifs */
+.rw i.n.gh{opacity:.45}
+#rdb{margin-top:6px;align-items:center}
+#rdb b{font-size:12px;letter-spacing:.12em;color:var(--y)}
+#rdbl{max-height:132px;overflow:auto;margin:6px 0 2px;padding-right:4px}
+#rdbl .mchip{display:inline-flex;margin:0 6px 6px 0}
+#rdbl .chip{margin:0;border-radius:20px 0 0 20px}
+#rdbl .chip.x{border-radius:0 20px 20px 0;border-left:0;padding:0 8px;opacity:.6}
+#rdbl .chip small{opacity:.6;margin-left:4px}
+#rdbl .mchip.pk .chip{border-radius:20px;border-style:dotted}

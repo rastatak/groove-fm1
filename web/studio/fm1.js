@@ -68,6 +68,10 @@ const muteTrk=i=>{const t=S.tracks[i];t.mute=!t.mute;applyParams();save();say(t.
 const muteGrp=k=>{S.gm[k]=S.gm[k]?0:1;applyParams();save();say((k==='r'?'Tout le rythme':'Toute la mélodie')+(S.gm[k]?' coupé':' relancé'));};
 const soloK=k=>{solo(k);say(S.solo.length?'Solo : '+S.solo.length+' piste(s)':'Solos retirés');};
 const noSolo=()=>{S.solo=[];applyParams();save();say('Solos retirés');};
+/* d’où vient « 🎲 RYTHME » (et l’auto-random) : la génération, la base de rythmes (MIDI importés), ou les deux */
+const SRCS=['gen','db','mix'],srcL=()=>'SOURCE '+({gen:'GÉNÉR.',db:'BASE',mix:'LES 2'}[S.rsrc||'gen']);
+function srcNext(){S.rsrc=SRCS[(SRCS.indexOf(S.rsrc||'gen')+1)%3];const e=document.getElementById('rsrc');if(e)e.value=S.rsrc;save();panelDirty=1;
+  say(S.rsrc==='db'?'🎲 pioche dans la base de rythmes'+(' ('+rdbAll().length+' motifs)'):S.rsrc==='mix'?'🎲 une fois la génération, une fois la base de rythmes':'🎲 génération, comme avant');}
 const rndRhythm=()=>{randomRhythm();say('Nouveau rythme '+S.style+(playing?' à la prochaine mesure':''));};
 const rndRow=r=>{randomRow(r);say('Nouveau motif sur '+ROWS[r]);};
 const rndTrk=i=>{randomMel(i);delete LP['t'+i];say('Nouvelle mélodie sur '+S.tracks[i].name);};
@@ -146,7 +150,7 @@ const STEP={
     if(dn){M.held.set(j,false);M.cur=j;return;}
     const used=M.held.get(j);M.held.delete(j);if(used)return;
     const s=tr.steps[j];if(s.n>=0)tr.steps[j]={n:-1,a:0,s:0,o:0,l:1};else{tr.steps[j]={n:M.deg,a:0,s:0,o:0,l:1};audition(M.deg);}save();},
-  lab:()=>{if(isD()){const g=cur().g[M.pt];return{col:()=>trkC(M.pt),low:g.map((_,j)=>String(j+1)),on:j=>g[j]>0,acc:j=>g[j]>1,play:true};}
+  lab:()=>{if(isD()){const g=cur().g[M.pt];return{col:()=>trkC(M.pt),low:g.map((_,j)=>String(j+1)),on:j=>g[j]>0,acc:j=>g[j]===2,play:true};}
     const tr=trk(),tl=tails(tr);return{col:()=>trkC(M.pt),low:tr.steps.map((s,j)=>s.n>=0?degName(s.n):String(j+1)),on:j=>tr.steps[j].n>=0,half:j=>tl[j]>=0,acc:j=>!!tr.steps[j].a,play:true};},
   sel:d=>{M.cur=(M.cur+d+16)%16;},
   click:()=>{if(isD()){const g=cur().g,r=M.pt,v=g[r][M.cur];g[r][M.cur]=v===0?1:v===1?2:0;cur().tmp=false;save();toast('PAS '+(M.cur+1)+' : '+['VIDE','NOTE','ACCENT'][g[r][M.cur]]);}
@@ -194,8 +198,9 @@ gryt:{t:'GEN RYTHME',sc:'r',
     else if(j===3){cur().g[M.pt]=Array(16).fill(0);cur().tmp=false;save();say(ROWS[M.pt]+' vidée');}
     else if(j===4){$('#clr').onclick();say('Rythme vidé');}else if(j===5){$('#keep').onclick();say('Rythme gardé dans la banque');}
     else if(j===6){$('#dup').onclick();say('Rythme dupliqué');}
-    else if(j===7){if(S.rhythms.length<2)return say('Il faut garder au moins un rythme');if(!sure(7,'SUPPR. LE RYTHME '+(S.cur+1)+' ?'))return;$('#del').onclick();say('Rythme supprimé');}},
-  lab:()=>({low:['🎲 RYTHME','VARIER','🎲 LIGNE','VIDER LIGNE','VIDER TOUT','GARDER','DUPLIQUER',cfL(7,'SUPPR.'),...blank(8)],on:j=>j<8,q:j=>M.cf[j]>performance.now()}),
+    else if(j===7){if(S.rhythms.length<2)return say('Il faut garder au moins un rythme');if(!sure(7,'SUPPR. LE RYTHME '+(S.cur+1)+' ?'))return;$('#del').onclick();say('Rythme supprimé');}
+    else if(j===8)srcNext();},
+  lab:()=>({low:['🎲 RYTHME','VARIER','🎲 LIGNE','VIDER LIGNE','VIDER TOUT','GARDER','DUPLIQUER',cfL(7,'SUPPR.'),srcL(),...blank(7)],on:j=>j<9,q:j=>M.cf[j]>performance.now()}),
   sel:d=>{const k=(STY.indexOf(S.style)+d+STY.length)%STY.length;setStyle(STY[k]);styleSc();save();},click:rndRhythm,
   help:[['Touches du bas','1 🎲 nouveau rythme · 2 varier · 3 🎲 la ligne · 4 vider la ligne · 5 vider tout · 6 garder · 7 dupliquer · 8 supprimer (2 appuis)'],['SELECT','style (tempo et gamme suivent) · clic = 🎲'],['Knobs','style · auto-random du rythme · auto de la ligne · swing']]},
 gmel:{t:'GEN MÉLODIE',sc:'t',
@@ -396,11 +401,11 @@ function algoTurn(dl){const m=S.algo||'pages';
   if(m==='pages'){const L=ORDER(),k=((L.indexOf(M.page)+dl)%L.length+L.length)%L.length;goPage(L[k]);const G=GRP[M.grp];toast(M.grp+' '+(G.indexOf(M.page)+1)+'/'+G.length+' · '+PAGES[M.page].t);return;}
   if(m==='bpm'){kTurn(bpmK(),dl);toast('BPM '+S.bpm);}else if(m==='dj'){const p=djK();kTurn(p,dl);toast('FILTRE DJ '+p.fmt(p.get()));}
   else if(m==='vol'){const p=volK();kTurn(p,dl);toast('VOLUME '+nameOf(M.pt)+' '+p.fmt(p.get()));}else if(m==='swing'){const p=swK();kTurn(p,dl);toast('SWING '+p.fmt(p.get()));}else turn('ALGO_RYT',dl);}
-function algoAng(){if(M.page==='hfx')return .1+(M.fxpg||0)*.13;if(LIVEP.includes(M.page))return M.kp?.85:.15;const m=S.algo||'pages';if(m==='pages'){const L=ORDER();return L.indexOf(M.page)/(L.length-1);}if(m==='bpm')return(S.bpm-60)/160;if(m==='dj'){const p=djK();return(p.get()+1)/2;}if(m==='vol')return volK().get();if(m==='swing')return(S.swing||0)/.6;return S.rhythms.length>1?S.cur/(S.rhythms.length-1):0;}
+function algoAng(){if(M.page==='hfx')return .1+(M.fxpg||0)*.13;if(PLAYP.includes(M.page))return M.kp?.85:.15;const m=S.algo||'pages';if(m==='pages'){const L=ORDER();return L.indexOf(M.page)/(L.length-1);}if(m==='bpm')return(S.bpm-60)/160;if(m==='dj'){const p=djK();return(p.get()+1)/2;}if(m==='vol')return volK().get();if(m==='swing')return(S.swing||0)/.6;return S.rhythms.length>1?S.cur/(S.rhythms.length-1):0;}
 PAGES.gvis={t:'VISU',
   knobs:()=>[bpmK(),djK(),swK(),K('AUTO RYT.',()=>Math.max(0,AUS.indexOf(S.auto||0)),v=>{S.auto=AUS[v];},0,AUS.length-1,1,v=>AUS[v]?AUS[v]+' MES':'OFF')],
-  low:(j,dn)=>{if(!dn)return;if(j===0)rndRhythm();else if(j===1){S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});say('Nouvelles mélodies sur les accords');}else if(j===2)longArp();else if(j===3){$('#vary').onclick();say('Rythme varié');}else if(j===4){S.tracks.forEach((t,i)=>varyMel(i));say('Mélodies variées');}else if(j===5)toggle();},
-  lab:()=>({low:['🎲 RYTHME','🎲 MÉLODIES','🎲 TOUT','VARIER RYT.','VARIER MÉL.',playing?'■ STOP':'▶ PLAY',...blank(10)],on:j=>j<6}),
+  low:(j,dn)=>{if(!dn)return;if(j===0)rndRhythm();else if(j===1){S.tracks.forEach((t,i)=>{randomMel(i);delete LP['t'+i];});say('Nouvelles mélodies sur les accords');}else if(j===2)longArp();else if(j===3){$('#vary').onclick();say('Rythme varié');}else if(j===4){S.tracks.forEach((t,i)=>varyMel(i));say('Mélodies variées');}else if(j===5)toggle();else if(j===6)srcNext();},
+  lab:()=>({low:['🎲 RYTHME','🎲 MÉLODIES','🎲 TOUT','VARIER RYT.','VARIER MÉL.',playing?'■ STOP':'▶ PLAY',srcL(),...blank(9)],on:j=>j<7}),
   sel:d=>{const k=((M.sty==null?STY.indexOf(S.style):M.sty)+d+STY.length)%STY.length;M.sty=k;toast(STY[k].toUpperCase()+' · ARP MAINTENU = VALIDER');},click:longArp,
   help:[['Visu','l’animation du style joué, sur le tempo'],['Touches du bas','1 🎲 rythme · 2 🎲 mélodies · 3 🎲 tout · 4 varier le rythme · 5 varier les mélodies · 6 play / stop'],['ARP maintenu 2 s','valider le style choisi et tout regénérer']]};
 // ---------- FX, page 1 : le récap de tous les effets, chacun coupable d'une touche ; FX maintenu = remettre à zéro ----------
@@ -497,13 +502,13 @@ function pageBtn(b){const L=GRP[b];
 
 /* ---------- Touches ---------- */
 // ---------- Mode JEU (pages LIVE) : ALGORITHM à droite = les 27 touches jouent l'instrument choisi, à gauche = retour aux coupures ----------
-const LIVEP=['home','hryt','hmel'],kpOn=()=>M.kp&&LIVEP.includes(M.page);
+const LIVEP=['home','hryt','hmel'],PLAYP=['home','hryt','hmel','ryt','mel'],kpOn=()=>M.kp&&PLAYP.includes(M.page);   /* SEQ aussi : ALGORITHM = ÉDITION / JEU */
 const kpDeg=r=>r+M.oct*SL();                       /* r = position de la touche de gauche à droite (0..26) : la gamme qui monte */
 const KP_HELD=new Set();
 function recDrum(k,v){if(!(rec&&playing&&curStep>=0))return;const st=(ctx.currentTime-stT)/(60/S.bpm/4)>.5?(curStep+1)%16:curStep;cur().g[k][st]=v;cur().tmp=false;save();recFlash(k,st,-1);}
 function kpKey(r,dn,acc){if(isD()){if(!dn)return;const k=r;drum(k,now()+.005,acc?2:1);recDrum(k,acc?2:1);return;}
   if(dn){KP_HELD.add(r);M.deg=Math.max(0,kpDeg(r));liveOn(kpDeg(r));}else{KP_HELD.delete(r);if(!KP_HELD.size)liveOff();else{const last=[...KP_HELD].pop();liveOn(kpDeg(last));}}}
-function kpSet(on){M.kp=!!on;KP_HELD.clear();liveOff();panelDirty=1;say(M.kp?'🎹 Mode JEU : tout le clavier joue '+nameOf(M.pt)+(isD()?' (touches 9-16 = accent)':' dans la gamme')+' · ALGORITHM à gauche pour revenir':'Mode COUPURES : les touches du bas coupent et relancent les pistes');}
+function kpSet(on){M.kp=!!on;KP_HELD.clear();liveOff();panelDirty=1;say(M.kp?'🎹 Mode JEU : tout le clavier joue '+nameOf(M.pt)+(isD()?' (touches 9-16 = accent)':' dans la gamme')+' · ALGORITHM à gauche pour revenir':LIVEP.includes(M.page)?'Mode COUPURES : les touches du bas coupent et relancent les pistes':'Mode ÉDITION : les touches posent les pas');}
 function upKey(k,dn){if(kpOn()&&!isD()){if(dn)M.upDown.add(k);else M.upDown.delete(k);return kpKey(BLACK[k],dn);}
   if(dn)M.upDown.add(k);else M.upDown.delete(k);
   if(isD()){if(k>7||!dn)return;if(M.pt!==k)M.pt=k;drum(k,now()+.005,1);
@@ -520,7 +525,10 @@ function longArp(){const st=M.grp==='ARP'&&(M.page==='gsty'||M.page==='gvis')&&S
   if(/^(trap|drill)$/i.test(st)){S.tracks.forEach(t=>t.sc=t.type==='bass'?.8:.45);S.scAuto=1;}else if(S.scAuto){S.tracks.forEach(t=>t.sc=0);S.scAuto=0;}applyParams();
   M.sty=STY.indexOf(st);save();M.flash=performance.now();
   say('🎲 Style '+st+' : '+S.bpm+' BPM · gamme '+S.scale+' · nouveau rythme et nouvelles mélodies'+(playing?' (le rythme change à la mesure)':' — PLAY pour écouter'));}
-const LONG={FX:{fn:longFx,l:()=>'↺ MAINTIENS : '+(M.grp==='FX'&&M.page!=='fxr'?PAGES[M.page].t+' À ZÉRO':'COUPER TOUS LES EFFETS')},HOME:{fn:longHome,l:()=>'🎲 MAINTIENS : '+(isD()?'NOUVEAU MOTIF ':'NOUVELLE MÉLODIE ')+nameOf(M.pt)},ARP:{fn:longArp,l:()=>'🎲 MAINTIENS : '+(M.page==='gsty'?STY[M.sty]:S.style).toUpperCase()+' · TOUT REGÉNÉRER'}};
+/* ENV / LFO maintenu : tous les effets (pages FX A à G) de la piste affichée à zéro */
+function longZero(){efSync(M.fxpg||0);FXE.forEach(pg=>pg.forEach(e=>{if(e[2]!=null){fxSetV(e[0],e[2]);delete M.byp[(M.fxt||0)+':'+e[0]];}}));applyParams();save();M.flash=performance.now();panelDirty=1;say('Tous les effets de '+nameOf(M.pt)+' remis à zéro');}
+const LZ={fn:longZero,l:()=>'↺ MAINTIENS : EFFETS DE '+nameOf(M.pt)+' À ZÉRO'};
+const LONG={ENV:LZ,LFO:LZ,SEQ:{fn:longHome,l:()=>'🎲 MAINTIENS : '+(isD()?'NOUVEAU MOTIF ':'NOUVELLE MÉLODIE ')+nameOf(M.pt)},FX:{fn:longFx,l:()=>'↺ MAINTIENS : '+(M.grp==='FX'&&M.page!=='fxr'?PAGES[M.page].t+' À ZÉRO':'COUPER TOUS LES EFFETS')},HOME:{fn:longHome,l:()=>'🎲 MAINTIENS : '+(isD()?'NOUVEAU MOTIF ':'NOUVELLE MÉLODIE ')+nameOf(M.pt)},ARP:{fn:longArp,l:()=>'🎲 MAINTIENS : '+(M.page==='gsty'?STY[M.sty]:S.style).toUpperCase()+' · TOUT REGÉNÉRER'}};
 function btn(n,dn){
   if(LONG[n]){if(dn){clearTimeout(M.hhT);M.hh={b:n,t0:performance.now(),done:false};M.hhT=setTimeout(()=>{if(M.hh){M.hh.done=true;LONG[n].fn();}},2000);}
     else{clearTimeout(M.hhT);const h=M.hh;M.hh=null;if(h&&!h.done)pageBtn(n);}return;}
@@ -530,14 +538,17 @@ function btn(n,dn){
   if(n==='REC'){if(rec||arec){if(rec)$('#rec').onclick();if(arec)amRec();say('REC coupé : tes mouvements rejouent en boucle (FX : REJOUE / EFFACER)');}
     else{$('#rec').onclick();amRec();say('REC : les notes jouées s’écrivent dans '+nameOf(M.pt)+' et les knobs tournés sont enregistrés en boucle');}return;}
   if((n==='OCT-'||n==='OCT+')&&(M.page==='son'||M.page==='sonr')){page().low(n==='OCT-'?2:0,true);panelDirty=1;return;}   /* OCT- = ✓ choisir · OCT+ = ◀ retour */
+  if((n==='OCT-'||n==='OCT+')&&(M.page==='ryt'||M.page==='mel')){presetSnd(n==='OCT+'?1:-1);panelDirty=1;return;}   /* SEQ : son suivant / précédent de la ligne ou de la piste */
   if((n==='OCT-'||n==='OCT+')&&(M.page==='gsty'||M.page==='gvis')){if(n==='OCT-')longArp();else{M.sty=Math.max(0,STY.indexOf(S.style));say('Retour au style en cours');}panelDirty=1;return;}
   if((n==='OCT-'||n==='OCT+')&&(LIVEP.includes(M.page)||M.page==='hfx'||M.page==='hmix')){muteGrp(n==='OCT-'?'r':'t');panelDirty=1;return;}
   if(n==='OCT-'||n==='OCT+'){M.oct=clamp(M.oct+(n==='OCT+'?1:-1),-2,2);toast('OCTAVE CLAVIER '+(M.oct>0?'+':'')+M.oct);}}
 function turn(n,dl){if(!dl||!S)return;
   if(n==='MASTER'){S.mv=clamp((S.mv==null?.8:S.mv)+dl*.02,0,1);applyParams();save();toast('MASTER '+pct(S.mv));return;}
   if(n==='SELECT')return page().sel(dl);
-  if(n==='PRESETS'){M.gsel=0;if(LIVEP.includes(M.page))return presetSnd(dl>0?1:-1);return setPt(M.pt+dl);}
-  if(n==='ALGORITHM'){if(M.page==='hfx'){const o=M.fxpg||0;M.fxpg=Math.max(0,Math.min(6,o+(dl>0?1:-1)));M.fxd=M.fxpg>=o?1:-1;M.fxa=performance.now();panelDirty=1;return toast('FX LIVE · PAGE '+FXPN[M.fxpg]+' : '+FXPT[M.fxpg]);}if(LIVEP.includes(M.page))return kpSet(dl>0);return algoTurn(dl);}
+  if(n==='PRESETS'){M.gsel=0;if(M.page==='hryt'){S.rsrc=SRCS[clamp(SRCS.indexOf(S.rsrc||'gen')+(dl>0?1:-1),0,2)];const e=document.getElementById('rsrc');if(e)e.value=S.rsrc;save();panelDirty=1;
+      return toast('SOURCE : '+({gen:'GÉNÉRATION',db:'BASE DE RYTHMES',mix:'LES DEUX'}[S.rsrc]));}   /* LIVE RYTHME : d’où vient un nouveau rythme (l’auto aussi) */
+    if(LIVEP.includes(M.page))return presetSnd(dl>0?1:-1);return setPt(M.pt+dl);}
+  if(n==='ALGORITHM'){if(M.page==='hfx'){const o=M.fxpg||0;M.fxpg=Math.max(0,Math.min(6,o+(dl>0?1:-1)));M.fxd=M.fxpg>=o?1:-1;M.fxa=performance.now();panelDirty=1;return toast('FX LIVE · PAGE '+FXPN[M.fxpg]+' : '+FXPT[M.fxpg]);}if(PLAYP.includes(M.page))return kpSet(dl>0);return algoTurn(dl);}
   if(n==='ALGO_RYT'){const b=queued?S.rhythms.indexOf(queued):S.cur,k=(b+dl+S.rhythms.length*9)%S.rhythms.length;go(S.rhythms[k]);toast('RYTHME '+(k+1)+' · '+ab(S.rhythms[k].name,18));return;}
   const m=/^KNOB(\d)$/.exec(n);if(m){const i=m[1]-1,p=page().knobs()[i];kTurn(p,dl);amK(i,p);}}
 /* Mouvements des knobs : REC les enregistre (pages LIVE, FX, ENV, MIX, SON), ils rejouent en boucle avec ceux des effets */

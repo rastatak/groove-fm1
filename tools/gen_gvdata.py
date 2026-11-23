@@ -10,7 +10,9 @@ def to_json(s):
     s=re.sub(r',(\s*[}\]])',r'\1',s)
     return json.loads(s)
 import subprocess
-D=json.loads(subprocess.check_output(['node','-e',open(sys.argv[2] if len(sys.argv)>2 else '/home/claude/app/data.js').read()+';process.stdout.write(JSON.stringify({SCALES,SCP,STYLES,PROGS,RH}))']))
+_dj=sys.argv[2] if len(sys.argv)>2 else '/home/claude/app/data.js'
+import os
+D=json.loads(subprocess.check_output(['node','-e',open(_dj).read()+';'+open(os.path.join(os.path.dirname(_dj),'rdbpack.js')).read()+';process.stdout.write(JSON.stringify({SCALES,SCP,STYLES,PROGS,RH,RDB_PACK,RDB_G2S}))']))
 SCALES,SCP,STY,PROGS,RH=D['SCALES'],D['SCP'],D['STYLES'],D['PROGS'],D['RH']
 sc_names=list(SCALES)
 o=['/* GENERATED from the web app (data.js) by tools/gen_gvdata.py: styles, scales, chords, generator rhythms */']
@@ -37,5 +39,19 @@ def bits(s):return int(''.join('1' if c=='x' else '0' for c in s),2)
 for k in ['bass','synth']:
     for kind in ['a','b']:
         L=RH[k][kind];o.append('static const uint16_t GV_RH_%s_%s[%d] = {%s};'%(k.upper(),kind.upper(),len(L),','.join('0x%04X'%bits(s) for s in L)))
+# the built-in rhythm base (rdbpack.js): one bar each, its genre, tempo, the styles that draw from it, hits and accents
+PK,G2S=D['RDB_PACK'],D['RDB_G2S']
+gn=sorted(set(e['genre'] for e in PK),key=lambda g:[e['genre'] for e in PK].index(g))
+def masks(e):
+    rows=e['g'].split();return [int(''.join('1' if c!='0' else '0' for c in r),2) for r in rows],[int(''.join('1' if c=='2' else '0' for c in r),2) for r in rows]
+def smask(g):
+    m=0
+    for n in G2S.get(g,[]): m|=1<<st.index(n)
+    return m
+assert len(st)<=32
+o.append('#define GV_NLIB %d'%len(PK))
+o.append('#define GV_NLG %d'%len(gn))
+o.append('static const char *const GV_LGN[GV_NLG] = {%s};'%','.join(json.dumps(g.upper()) for g in gn))
+o.append('static const struct { uint8_t g, bpm; uint32_t sm; uint16_t on[8], ac[8]; } GV_LIB[GV_NLIB] = {%s}; /* genre, tempo, styles (bits), hits, accents */'%','.join('{%d,%d,0x%Xu,{%s},{%s}}'%(gn.index(e['genre']),e['bpm'],smask(e['genre']),','.join('0x%04X'%v for v in masks(e)[0]),','.join('0x%04X'%v for v in masks(e)[1])) for e in PK))
 open(sys.argv[1],'w').write('\n'.join(o)+'\n')
 print(len(st),'styles,',len(sc_names),'scales')

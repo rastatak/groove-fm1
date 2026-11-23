@@ -34,7 +34,7 @@ function renderBank(){$('#bank').innerHTML=S.rhythms.map((r,k)=>`<button class="
   if(document.activeElement!==$('#rname'))$('#rname').value=cur().name;}
 function renderRhythm(){renderBank();const g=cur().g;
   $('#drums').innerHTML=ROWS.map((nm,r)=>{const row=S.rows[r];
-    return `<div class="rw" style="--rc:${trkC(r)}"><button class="mt${row.mute?' off':''}${row.lp||row.rl>1?' fx':''}" data-mr="${r}">${nm}</button><select data-sr="${r}">${smpOpts(row.smp,'Son interne',ROWF[r])}</select><input type="range" class="v" min="0" max="1" step="0.01" value="${row.vol}" data-vr="${r}">`+g[r].map((v,c)=>`<i data-c="${c}" data-r="${r}" class="${v?(v>1?'n ac':'n'):''}${c%4?'':' b'}"></i>`).join('')+'</div>';}).join('');
+    return `<div class="rw" style="--rc:${trkC(r)}"><button class="mt${row.mute?' off':''}${row.lp||row.rl>1?' fx':''}" data-mr="${r}">${nm}</button><select data-sr="${r}">${smpOpts(row.smp,'Son interne',ROWF[r])}</select><input type="range" class="v" min="0" max="1" step="0.01" value="${row.vol}" data-vr="${r}">`+g[r].map((v,c)=>`<i data-c="${c}" data-r="${r}" class="${v?(v===2?'n ac':v===3?'n gh':'n'):''}${c%4?'':' b'}"></i>`).join('')+'</div>';}).join('');
   renderPads();renderDfx();}
 function renderDfx(){const all=fxR<0,same=k=>S.rows.every(r=>r[k]===S.rows[0][k]),
     o=all?{lp:same('lp')?S.rows[0].lp:0,rl:same('rl')?S.rows[0].rl:1}:S.rows[fxR];
@@ -77,8 +77,12 @@ function setStyle(s){if(!STYLES[s])return;S.style=s;$('#style').value=s;$('#lsty
 function styleSc(){const sc=STYLES[S.style].sc,e=$('#scale');if(!sc||!SCALES[sc])return;if(sc!==S.scale&&e.oninput){e.value=sc;e.oninput();}
   msg('Style '+S.style[0].toUpperCase()+S.style.slice(1)+' : '+S.bpm+' BPM · gamme '+sc);}
 function applyR(r){const s=styleOf(r);if(s&&s!==S.style&&s!==styleOf(cur()))setStyle(s);
+  if(r.bpm&&r.bpm!==S.bpm){S.bpm=r.bpm;$('#bpm').value=S.bpm;applyParams();}   /* (un motif de la base chargé à la main : son tempo) */
   if(r.tmp)S.rhythms=S.rhythms.filter(x=>!x.tmp||x===r);S.cur=Math.max(0,S.rhythms.indexOf(r));queued=null;ROWS.forEach((_,k)=>delete LP['r'+k]);renderRhythm();save();}
-function randomRhythm(){const list=STYLES[S.style].t;let p;do{p=pick(list);}while(list.length>1&&cur().name.endsWith(p.split('|')[0]));
+function randomRhythm(){
+  /* la source : génération (les modèles du style), la base de rythmes (MIDI importés), ou une fois l’une une fois l’autre */
+  if(S.rsrc==='db'||(S.rsrc==='mix'&&(S.rmix=!S.rmix))){const e=typeof rdbPick==='function'&&rdbPick();if(e)return rdbGo(e,false);}
+  const list=STYLES[S.style].t;let p;do{p=pick(list);}while(list.length>1&&cur().name.endsWith(p.split('|')[0]));
   const[nm,hex]=p.split('|');go({name:S.style[0].toUpperCase()+S.style.slice(1)+' · '+nm,tmp:true,st:S.style,g:grid(hex)},true);}
 
 // Auto-random d'une seule ligne de batterie : elle prend le motif de cette ligne dans un autre modèle (du style en cours si possible)
