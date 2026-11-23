@@ -658,7 +658,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
         }
         lfo = t->lfd ? gv_lfo(v, t, n) : 0;
         q = 32767 - t->res * 240;                     /* damping: less = more resonance */
-        vol = gv_track_heard(8u + i) && t->mo != 1u ? t->vol * 200 : 0;   /* (MIDI only: silent here) */   /* x VOICE_FS-ish level */
+        vol = gv_track_heard(8u + i) && t->mo != 1u ? t->vol * 10 : 0;   /* (MIDI only: silent here) */   /* a track at 100 peaks where a drum does (~20000) */
         dly = t->dly * 258; rev = t->rev * 258;
         drive = t->dist;
         cho = t->cho * 258; gtv = 127 - t->gt;
@@ -745,7 +745,7 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
                 s = (int32_t)(((int64_t)s * g) >> 15);
             }
             ml[j] += (s * pl) >> 7; mr[j] += (s * pr) >> 7;
-            if (i == gv_scope_trk && !(gv_scdec++ & 7u)) gv_scope[gv_scw++ & 127u] = (int16_t)gv_clamp(s >> 3, -32767, 32767);   /* 1 in 8: ~23 ms */
+            if (i == gv_scope_trk && !(gv_scdec++ & 7u)) gv_scope[gv_scw++ & 127u] = (int16_t)gv_clamp(s * 3, -32767, 32767);   /* 1 in 8: ~23 ms */
             if (cho) sc[j] += (s * cho) >> 15;
             if (dly) sd[j] += (s * dly) >> 15;
             if (rev) sr[j] += (s * rev) >> 15;
