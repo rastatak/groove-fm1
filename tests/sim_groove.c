@@ -239,7 +239,42 @@ int main(void)
     tap_btn(B_EDIT); check("EDIT x2: REGLAGES (the steps, the sources)", gu.page == GP_GSET);
     tap_btn(B_EDIT); check("EDIT x3: SON REGLAGES", gu.page == GP_SONR); shot("sonr");
     tap_btn(B_EDIT); check("EDIT x4: EDITER", gu.page == GP_SEDIT); { int16_t e = trk[GV_ROWTRK[0]].p[P_E2]; sim_enc(EN_K1, 4); run(FS / 20u); check("EDITER knob 1: the voice's 3rd knob", trk[GV_ROWTRK[0]].p[P_E2] != e); } shot("sedit");
-    tap_btn(B_EDIT); check("EDIT x5: MIDI PISTES", gu.page == GP_EMIDI); shot("emidi");
+    tap_btn(B_EDIT); check("EDIT x5: SON +", gu.page == GP_SED2);
+    {   /* SON +: the four deeper knobs of a melodic track, each heard; the groups on the sound pages */
+        int8_t sel0 = gv.sel; uint8_t g0 = gu.grp; uint32_t k; double q0, q1; gv_trk_t keep;
+        gv.sel = 8; gu.grp = 0; keep = gv.t[0]; run(FS / 20u);
+        sim_enc(EN_K1, 5); run(FS / 20u); check("SON + knob 1: SUB", gv.t[0].sub > 0);
+        sim_enc(EN_K2, 5); run(FS / 20u); check("SON + knob 2: GRAS", gv.t[0].det > 0);
+        sim_enc(EN_K3, 5); run(FS / 20u); check("SON + knob 3: BRUIT", gv.t[0].noi > 0);
+        sim_enc(EN_K4, 5); run(FS / 20u); check("SON + knob 4: LARGEUR", gv.t[0].pw > 0);
+        shot("sed2");
+        gv.t[0].sub = gv.t[0].det = gv.t[0].noi = gv.t[0].pw = 0;
+        { uint8_t vv[GV_NT]; for (k = 1; k < GV_NT; k++) { vv[k] = gv.t[k].vol; gv.t[k].vol = 0; }
+        { int16_t lv[8]; for (k = 0; k < 8u; k++) { lv[k] = trk[k].p[P_LEVEL]; trk[k].p[P_LEVEL] = 0; }
+          if (!sim_playing()) { tap_btn(B_PLAY); }
+          q0 = rms_of(FS * 2u);
+          gv.t[0].sub = 127; q1 = rms_of(FS * 2u); printf("info  SUB off %.4f, full %.4f\n", q0, q1); check("SUB is heard", fabs(q1 - q0) > q0 * 0.02); gv.t[0].sub = 0;
+          gv.t[0].noi = 127; q1 = rms_of(FS * 2u); printf("info  BRUIT full %.4f\n", q1); check("BRUIT is heard", q1 != q0 && q1 > 0.001); gv.t[0].noi = 0;
+          gv.t[0].det = 127; q1 = rms_of(FS * 2u); printf("info  GRAS full %.4f\n", q1); check("GRAS is heard", q1 > 0.001 && q1 < 1.0); gv.t[0].det = 0;
+          gv.t[0].pw = 127; q1 = rms_of(FS * 2u); printf("info  LARGEUR full %.4f\n", q1); check("LARGEUR is heard", q1 > 0.0005 && q1 < 1.0);
+          gv.t[0].sub = gv.t[0].det = gv.t[0].noi = 127; q1 = rms_of(FS * 2u); printf("info  all four full %.4f\n", q1); check("all four full: still a sane level", q1 > 0.001 && q1 < 0.6);
+          for (k = 0; k < 8u; k++) trk[k].p[P_LEVEL] = lv[k]; }
+        for (k = 1; k < GV_NT; k++) gv.t[k].vol = vv[k]; }
+        gv.t[0] = keep;
+        gv.sel = 13; sim_enc(EN_SELECT, 1); run(FS / 20u); check("SON +: SELECT past the last track: TOUT RYTHME", gu.grp == 2u && gv.sel < 8);
+        { int16_t a = trk[GV_ROWTRK[0]].p[P_RMIX], b = trk[GV_ROWTRK[5]].p[P_RMIX]; sim_enc(EN_K4, -3); run(FS / 20u);
+          check("TOUT RYTHME: a knob moves every row", trk[GV_ROWTRK[0]].p[P_RMIX] < a && trk[GV_ROWTRK[5]].p[P_RMIX] < b);
+          trk[GV_ROWTRK[0]].p[P_RMIX] = a; for (k = 0; k < 8u; k++) trk[GV_ROWTRK[k]].p[P_RMIX] = k == 5u ? b : a; }
+        sim_enc(EN_SELECT, 1); run(FS / 20u); check("then TOUTE MELODIE", gu.grp == 3u && gv.sel >= 8); shot("sed2grp");
+        sim_enc(EN_K1, 4); run(FS / 20u); { uint32_t all = 1; for (k = 0; k < GV_NT; k++) all &= gv.t[k].sub > 0; check("TOUTE MELODIE: SUB on the six tracks", all); for (k = 0; k < GV_NT; k++) gv.t[k].sub = 0; }
+        tap_btn(B_EDIT); tap_btn(B_EDIT); tap_btn(B_EDIT); tap_btn(B_EDIT); tap_btn(B_EDIT); tap_btn(B_EDIT); tap_btn(B_EDIT);
+        check("back on EDITER the group is still on", gu.page == GP_SEDIT && gu.grp == 3u);
+        { uint8_t r0 = gv.t[0].res, r3 = gv.t[3].res; sim_enc(EN_K1, 3); run(FS / 20u); check("EDITER, TOUTE MELODIE: RESO on every track", gv.t[0].res > r0 && gv.t[3].res > r3); for (k = 0; k < GV_NT; k++) gv.t[k].res = k == 3u ? r3 : gv.t[k].res; gv.t[0].res = r0; }
+        sim_enc(EN_SELECT, 1); run(FS / 20u); check("SELECT again: back to the first row", gu.grp == 0u && gv.sel == 0);
+        tap_btn(B_EDIT);
+        gv.sel = sel0; gu.grp = g0;
+    }
+    tap_btn(B_EDIT); check("EDIT x6: MIDI PISTES", gu.page == GP_EMIDI); shot("emidi");
     {   /* GLO: PRESETS up/down, ALGORITHM left/right, SELECT the value, OCT- validates */
         int16_t sw; uint8_t al;
         tap_btn(B_HOME); tap_btn(B_GLO); gu.gcur = 0;
@@ -597,6 +632,49 @@ int main(void)
         tap_btn(B_SAVE); check("CLAP, SAVE: kept in the user bank", trk[GV_ROWTRK[2]].pre >= PRE_NFACT && gv_snd_ids(ids, &cur) == n + 1u);
         shot("son_usr_drum");
         tap_btn(B_HOME);
+    }
+    {   /* HOME: two short presses then a long one wipes the shown track; a long one alone still makes a new one */
+        uint32_t k, n = 0; uint8_t pg;
+        gv_am_clear(); if (gv_recq) tap_btn(B_REC);
+        tap_btn(B_HOME); while (gu.page != GP_LIVE) tap_btn(B_HOME);
+        run(FS); gv.sel = 8; gv.t[0].len = 32; gv_gen_mel(0); for (k = 0; k < 32u; k++) n += gv.t[0].st[k].n >= 0;
+        check("the bass has notes over its two bars", n > 0);
+        pg = gu.page; tap_btn(B_HOME); tap_btn(B_HOME); check("two short presses: two pages on", gu.page != pg);
+        sim_btn(B_HOME, 1); run(FS / 2u); shot("hold_clr"); run(FS * 17u / 10u); sim_btn(B_HOME, 0); run(FS / 50u);
+        for (n = 0, k = 0; k < GV_MAXS; k++) n += gv.t[0].st[k].n >= 0;
+        check("then a long one: the bass is empty, back on the page it began on", n == 0 && gu.page == pg);
+        run(FS); hold_btn(B_HOME); for (n = 0, k = 0; k < 32u; k++) n += gv.t[0].st[k].n >= 0;
+        check("a long press alone: a new melody", n > 0 && gu.page == pg);
+        gv.sel = 0; run(FS); tap_btn(B_HOME); tap_btn(B_HOME); hold_btn(B_HOME);
+        check("the same on the KICK: its row is empty, the KICK still shown", gv_rhythm_row_get(0) == 0 && gv.sel == 0);
+        gv_gen_rhythm(); gv.t[0].len = 16; gv_gen_mel(0);
+    }
+    {   /* REC: a played note keeps how long the key was held and where in the step it fell; a 1-bar knob move loops every bar */
+        uint32_t k, st, sn; gv_step_t *s;
+        gv.sel = 8; gu.kp = 0; gv_mel_wipe(&gv.t[0]);
+        tap_btn(B_HOME); while (gu.page != GP_LIVE) tap_btn(B_HOME);
+        if (!sim_playing()) tap_btn(B_PLAY);
+        if (!gv_recq) tap_btn(B_REC);
+        run(FS / 3u);
+        while (gv_acc_s > 600u) run(64);                /* (a step's beginning) */
+        sn = gv_step_len(gv_pos); st = gv_tstep(0);
+        sim_key(GV_BLACK[2], 1); run(sn * 3u); sim_key(GV_BLACK[2], 0); run(FS / 20u);
+        s = &gv.t[0].st[st];
+        printf("info  REC note: step %u n %d l4 %u o4 %u\n", (unsigned)st, s->n, (unsigned)s->l4, (unsigned)s->o4);
+        check("REC: a key held 3 steps: a note 3 steps long (l4 ~ 12)", s->n >= 0 && s->l4 >= 11u && s->l4 <= 13u);
+        while (gv_acc_s < sn / 2u + 200u || gv_acc_s > sn * 3u / 4u - 200u) run(64);   /* (the step's third quarter) */
+        st = gv_tstep(0); sim_key(GV_BLACK[4], 1); run(sn / 2u); sim_key(GV_BLACK[4], 0); run(FS / 20u);
+        s = &gv.t[0].st[st];
+        printf("info  REC late note: l4 %u o4 %u\n", (unsigned)s->l4, (unsigned)s->o4);
+        check("REC: played late in the step: its offset kept, a short note", s->n >= 0 && s->o4 == 2u && s->l4 <= 3u);
+        tap_btn(B_ENV); while (gu.page != GP_FLT) tap_btn(B_ENV);
+        gv.t[0].cut = 100; while ((gv_pos & 15u) != 0u) run(64);
+        for (k = 0; k < 12u; k++) { sim_enc(EN_K1, -2); run(sn); }
+        tap_btn(B_REC);
+        { gv_am_t *a = gv_am_find(KN_CUT, 0); uint32_t full = a != 0; if (a) for (k = 0; k < AM_LEN; k++) full &= a->v[k] != AM_NONE;
+          check("REC cut after one bar: the knob's lane has no hole", full);
+          check("... and the bar repeats in the 3 others", a && a->v[4] == a->v[20] && a->v[4] == a->v[52] && a->v[2] != a->v[11]); }
+        gv_am_clear(); gv_gen_mel(0);
     }
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);

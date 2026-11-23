@@ -15,4 +15,4 @@ app      /home/runner/work/groove-fm1/groove-fm1/build/felucca.bin  488576 B
 loader   /home/runner/work/groove-fm1/groove-fm1/build/loader/ota.bin  6493 B
 package  /home/runner/work/groove-fm1/groove-fm1/build/felucca-UNTESTED.fwsc  609649 B, identity FM-1_900
 manual: /home/runner/work/groove-fm1/groove-fm1/build/site/manual/index.html: 19 sections, 1053 entries, ~23859 words, 411997 B
-site: /home/runner/work/groove-fm1/groove-fm1/build/site: index.html (landing page + simulator, 37 files), webapp/installer (27325 B), webapp/editor, firmware/felucca-drum-1.0.1-3b386b7.fwsc (609649 B, FM-1_900)
+site: /home/runner/work/groove-fm1/groove-fm1/build/site: index.html (landing page + simulator, 37 files), webapp/installer (27325 B), webapp/editor, firmware/felucca-drum-1.0.1-df9b1ee.fwsc (609649 B, FM-1_900)

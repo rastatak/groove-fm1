@@ -63,6 +63,7 @@ typedef struct {                   /* a melodic track; knobs 0..127 like Hortato
     uint8_t ap, vb, rm, wf, sat, fo;  /* FX LIVE pages F G: auto-pan, vibrato, ring modulation, wavefolder, saturation, the
                                     * vowel filter (0 off, 1..127 A E I O U) */
     int8_t ps;                     /* pitch shift, semitones -12..12 */
+    uint8_t sub, det, noi, pw;     /* EDIT SON +: a sub an octave below, a detuned twin, noise, the wave's width (all 0: as before) */
     uint8_t pan, sc, tr, ts;       /* FX LIVE page E: pan (64 the middle), sidechain (the kick ducks it), tremolo (an 1/8
                                     * note), tape stop (the track slows down to a halt) */
     uint8_t cho, rl, sk, rv, lp, cr, gt, hf;   /* FX LIVE pages C D: chorus, roll x2-4, skipped steps, reverse, loop
@@ -111,6 +112,7 @@ typedef struct {                   /* a voice, ISR only */
     uint8_t pacc, pslide, pn;
     uint8_t pnote, mnote, mon, mchn; /* MIDI out: the note waiting, the one held on the other machine, its channel */
     uint32_t rph;                  /* ring modulation: the carrier's phase */
+    uint32_t sph, dph;             /* SON +: the sub's and the detuned twin's phases */
     int32_t f1l, f1b, f2l, f2b;    /* the vowel filter: two band-passes */
     uint32_t tsl;                  /* tape stop: how far it has slowed, Q16 (0 full speed .. 127 << 16 stopped) */
     int32_t crs; uint32_t crh, rlc;  /* bitcrush: the held sample, its countdown; roll: samples to the next hit */
@@ -133,6 +135,7 @@ static int gv_ui_leds(void);
 static volatile uint8_t gv_kp;                  /* JEU on a LIVE page: every key plays the shown track */
 static volatile uint8_t gv_recq;                /* REC on: keys write into the pattern */
 static gv_voice_t gvv[GV_NT];
+static uint32_t gv_nz = 22222u;                 /* SON +: the noise */
 #ifndef GV_ON_DEFAULT
 #define GV_ON_DEFAULT 1                 /* the device: Groove at power-on (the simulator: sim_init decides) */
 #endif
@@ -235,6 +238,11 @@ static void gv_gen_mel(uint32_t i)
     if (gv_src_mel(i)) return;                     /* (the source is the base or the bank) */
     gv_gen_bar(i);
     gv_mel_fill(i);
+}
+static void gv_mel_wipe(gv_trk_t *t)               /* every step of the track, whatever its length */
+{
+    uint32_t c;
+    for (c = 0; c < GV_MAXS; c++) { t->st[c].n = -1; t->st[c].a = t->st[c].s = 0; t->st[c].o4 = 0; t->st[c].l4 = 4; }
 }
 static void gv_gen_bar(uint32_t i)                 /* (into the track's first 16 steps) */
 {
@@ -662,9 +670,13 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
         dly = t->dly * 258; rev = t->rev * 258;
         drive = t->dist;
         cho = t->cho * 258; gtv = 127 - t->gt;
+        /* LARGEUR: the wave's first half squeezed into pwb of the turn (a square: its pulse width) */
+        uint32_t pwb = 32768u - (uint32_t)t->pw * 236u, pm1 = (32768u << 8) / pwb, pm2 = (32768u << 8) / (65536u - pwb);
+#define GV_PD(p) (t->pw ? ((p) >> 16 < pwb ? (((p) >> 16) * pm1) << 8 : 0x80000000u + (((((p) >> 16) - pwb) * pm2) << 8)) : (p))
         if (rper && (!v->rlc || v->rlc > rper)) v->rlc = rper - gv_acc_s % rper;
         for (j = 0; j < n; j++) {
             int32_t x = 0, s, hp;
+            uint32_t st0 = 0;
             if (v->delay && !--v->delay) gv_note_start(i);
             if (!v->on) continue;
             for (k = 0; k < v->nosc; k++) {
@@ -678,10 +690,21 @@ static void gv_render(int32_t *ml, int32_t *mr, int32_t *sc, int32_t *sd, int32_
                     if (pf != 65536u) st2 = (uint32_t)(((uint64_t)st2 * pf) >> 16);
                     if (v->tsl) st2 = (uint32_t)(((uint64_t)st2 * ((128u << 16) - v->tsl)) >> 23);
                     v->ph[k] += st2;
+                    if (!k) st0 = st2;
                     if (!k && rmk) v->rph += st2 + (st2 >> 1);      /* RING MOD: its carrier a fifth above */
                 }
-                x += gv_osc(v->ph[k] + (k ? k * 0x1234567u : 0u), t->wave) / (int32_t)(v->nosc == 3u ? 3 : 1);
+                x += gv_osc(GV_PD(v->ph[k] + (k ? k * 0x1234567u : 0u)), t->wave) / (int32_t)(v->nosc == 3u ? 3 : 1);
             }
+            if (t->det) {                                /* GRAS: a twin up to a quarter tone sharp, the two beat */
+                v->dph += st0 + (((st0 >> 8) * t->det) >> 5);
+                x = ((x + gv_osc(GV_PD(v->dph), t->wave)) * 3) >> 2;
+            }
+            if (t->sub) {                                /* SUB: a triangle an octave below */
+                int32_t a;
+                v->sph += st0 >> 1; a = (int32_t)(v->sph >> 16) - 32768;
+                x += ((a < 0 ? 2 * a + 32767 : 32767 - 2 * a) * t->sub) >> 7;
+            }
+            if (t->noi) { gv_nz = gv_nz * 1664525u + 1013904223u; x += (((int32_t)(gv_nz >> 16) - 32768) * t->noi) >> 7; }   /* BRUIT */
             if (rmk) {                                   /* RING MOD: the sound times a triangle */
                 int32_t c = (int32_t)(v->rph >> 16) - 32768; c = c < 0 ? 2 * c + 32767 : 32767 - 2 * c;
                 x += ((((x * c) >> 15) - x) * rmk) >> 15;
@@ -911,11 +934,31 @@ static void gv_tick(uint32_t n)
 static const uint8_t GV_BLACK[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 static const uint8_t GV_WKEY[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};   /* = STEP_KEY (seq.c) */
 static uint32_t gv_kp_held;
-static void gv_rec_note(uint32_t i, int d)       /* REC: the note into the step playing (its degree, the chord taken off) */
+/* REC: the note played into the step playing: its degree (the chord taken off), where in the step the key went down
+ * (quarter steps), a slide if another key was still held; its length is written when the key goes up (gv_rec_end) */
+static struct { uint8_t on, i, st, o4; uint32_t t0; } gv_rk;
+static void gv_rec_end(void)
 {
-    gv_step_t *s = &gv.t[i].st[gv_tstep(i)];
+    gv_trk_t *t = &gv.t[gv_rk.i % GV_NT];
+    uint32_t ms = fm1_ms - gv_rk.t0, sn = gv_stepn ? gv_stepn : 1u, l4, q, n, len = gv_tlen(gv_rk.i % GV_NT);
+    if (!gv_rk.on) return;
+    gv_rk.on = 0;
+    if (ms > 20000u) ms = 20000u;
+    l4 = (ms * (4u * GV_FS / 100u) / 10u + sn / 2u) / sn;      /* quarter steps held, to the nearest */
+    l4 = l4 < 1u ? 1u : l4 > 64u ? 64u : l4;
+    if (t->st[gv_rk.st % GV_MAXS].n < 0) return;               /* (wiped meanwhile) */
+    t->st[gv_rk.st % GV_MAXS].l4 = (uint8_t)l4;
+    n = (gv_rk.o4 + l4 - 1u) / 4u;                              /* the steps it sounds over: theirs give way */
+    for (q = 1; q <= n && q < len; q++) t->st[(gv_rk.st + q) % len].n = -1;
+}
+static void gv_rec_note(uint32_t i, int d, int slide)
+{
+    uint32_t st = gv_tstep(i), o4 = gv_stepn ? gv_acc_s * 4u / gv_stepn : 0u;
+    gv_step_t *s = &gv.t[i].st[st];
+    gv_rec_end();                                               /* (legato: the note before ends here) */
     if (!gv_recq || !song.playing) return;
-    s->n = (int8_t)gv_clamp(d, 0, 2 * (int)gv_L()); s->l4 = 4; s->o4 = 0; s->a = 0; s->s = 0;
+    s->n = (int8_t)gv_clamp(d, 0, 2 * (int)gv_L()); s->l4 = 4; s->o4 = (uint8_t)(o4 > 3u ? 3u : o4); s->a = 0; s->s = slide ? 1u : 0u;
+    gv_rk.i = (uint8_t)i; gv_rk.st = (uint8_t)st; gv_rk.o4 = s->o4; gv_rk.t0 = fm1_ms; gv_rk.on = 1;
 }
 static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left = the scale going up */
 {
@@ -925,7 +968,7 @@ static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left
         for (w = 0; w < 16u && GV_WKEY[w] != key; w++) {}
         if (!down) return;
         if (w < 16u || gv_kp == 2u) { uint32_t r = gv_kp == 2u ? (uint32_t)gv.sel & 7u : w & 7u; { gv_live_hit = 1; drum_hit(&trk[GV_ROWTRK[r]], w >= 8u ? 127 : 100); gv_live_hit = 0; } gv_hit_t[r] = song.tick;
-            if (gv_recq && song.playing) trk[GV_ROWTRK[r]].step[gv_rstep()].on = 1; }
+            if (gv_recq && song.playing) { step_t *sp = &trk[GV_ROWTRK[r]].step[gv_rstep()]; sp->on = 1; sp->acc = w >= 8u && w < 16u; } }   /* (the right half: the loud hit) */
         return;
     }
     i = (uint32_t)gv.sel - 8u;
@@ -934,10 +977,10 @@ static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left
         gv_kp_held |= 1u << key;
         gv_live_trk = (uint8_t)(8u + i);
         gv_note_on(i, d + gv_choff(), 0, 0, gv_kp_held & ~(1u << key) ? 1 : 0, 1u);
-        gv_rec_note(i, d);
+        gv_rec_note(i, d, gv_kp_held & ~(1u << key) ? 1 : 0);
     } else {
         gv_kp_held &= ~(1u << key);
-        if (!gv_kp_held) { gv_note_off(i); gv_live_trk = 0xFF; }
+        if (!gv_kp_held) { gv_note_off(i); gv_live_trk = 0xFF; gv_rec_end(); }
     }
 }
 static void gv_keys_isr(uint32_t cur, uint32_t ch)
@@ -963,8 +1006,9 @@ static void gv_keys_isr(uint32_t cur, uint32_t ch)
                 gv_live_trk = (uint8_t)(8u + i);
                 gv_live_deg = (int16_t)d;
                 gv_note_on(i, d + gv_choff(), 0, 0, 0, 1u);
-                gv_rec_note(i, d);
+                gv_rec_note(i, d, 0);
             } else if (gv_live_trk == 8u + i && !(cur & 0x2A52D2Au)) {   /* the last black key let go */
+                gv_rec_end();
                 gv_note_off(i);
                 gv_live_trk = 0xFF;
             }
