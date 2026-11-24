@@ -8,11 +8,11 @@ generated waves into /home/runner/work/groove-fm1/groove-fm1/build/genwav
 samples: 1 sets, 24 zones, 74424 B ADPCM (cached)
 seek: 16 samples x 127 START states
   ok    .ram_text: 909 insns, no calls
-  ok    image 488576 B; RAM .data+.bss 92516 B of 98304; pool 327484 B of 344064
+  ok    image 491504 B; RAM .data+.bss 92644 B of 98304; pool 327484 B of 344064
   ok    web editor: .data+.bss 408 B, pool 400 B
   ok    register access: hal/ only (src/, src/ble/, loader/ clean)
-app      /home/runner/work/groove-fm1/groove-fm1/build/felucca.bin  488576 B
+app      /home/runner/work/groove-fm1/groove-fm1/build/felucca.bin  491504 B
 loader   /home/runner/work/groove-fm1/groove-fm1/build/loader/ota.bin  6493 B
 package  /home/runner/work/groove-fm1/groove-fm1/build/felucca-UNTESTED.fwsc  609649 B, identity FM-1_900
 manual: /home/runner/work/groove-fm1/groove-fm1/build/site/manual/index.html: 19 sections, 1053 entries, ~23859 words, 411997 B
-site: /home/runner/work/groove-fm1/groove-fm1/build/site: index.html (landing page + simulator, 37 files), webapp/installer (27325 B), webapp/editor, firmware/felucca-drum-1.0.1-df9b1ee.fwsc (609649 B, FM-1_900)
+site: /home/runner/work/groove-fm1/groove-fm1/build/site: index.html (landing page + simulator, 37 files), webapp/installer (27325 B), webapp/editor, firmware/felucca-drum-1.0.1-06e6718.fwsc (609649 B, FM-1_900)
