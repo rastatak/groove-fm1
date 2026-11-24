@@ -170,5 +170,60 @@ uint8_t *sim_flash(void) { return hflash; }
 uint32_t *sim_flash_dirty(void) { return sim_dirty; }
 void sim_flash_clean(void) { memset(sim_dirty, 0, sizeof sim_dirty); }
 
+/* ---- the web app (web/studio/fw.js): the firmware's own generators, so the Studio makes what the FM-1 makes ----
+ * gx_buf: 8 rows x 64 steps (bit 0 on, bit 1 accent), then one track's 64 steps x 5 (degree or 255, quarter steps
+ * long, quarter steps late, accent, slide) */
+static uint8_t gx_out[8 * 64 + 64 * 5];
+uint8_t *gx_buf(void) { return gx_out; }
+static void gx_rows(void)
+{
+    uint32_t r, c;
+    for (r = 0; r < 8u; r++) for (c = 0; c < 64u; c++) { const step_t *q = &trk[GV_ROWTRK[r]].step[c % gv_rlen()]; gx_out[r * 64u + c] = (uint8_t)((q->on ? 1u : 0u) | (q->acc ? 2u : 0u)); }
+}
+static void gx_trk(uint32_t i)
+{
+    uint32_t c;
+    for (c = 0; c < 64u; c++) { const gv_step_t *q = &gv.t[i].st[c % gv_tlen(i)]; uint8_t *o = &gx_out[512u + c * 5u];
+        o[0] = (uint8_t)(q->n < 0 ? 255 : q->n); o[1] = q->l4; o[2] = q->o4; o[3] = q->a; o[4] = q->s; }
+}
+static void gx_trk_in(uint32_t i)
+{
+    uint32_t c;
+    for (c = 0; c < 64u; c++) { gv_step_t *q = &gv.t[i].st[c]; const uint8_t *o = &gx_out[512u + c * 5u];
+        q->n = (int8_t)(o[0] == 255u ? -1 : o[0] > 28u ? 28 : o[0]); q->l4 = (uint8_t)(o[1] ? o[1] > 64u ? 64u : o[1] : 1u); q->o4 = o[2] & 3u; q->a = o[3] & 1u; q->s = o[4] & 1u; }
+}
+uint32_t gx_boot(uint32_t seed)                         /* a machine of its own, Groove on, never played */
+{
+    uint32_t k;
+    sim_groove = 1; sim_init(1);
+    for (k = 0; k < 8u && !gu.init; k++) sim_frame();
+    gv_rng = seed ? seed : 1u;
+    return gu.init;
+}
+void gx_cfg(uint32_t style, uint32_t root, uint32_t scale, uint32_t prog, uint32_t rsrc, uint32_t msrc)
+{
+    gv.style = (uint8_t)(style % GV_NSTY); gv.root = (uint8_t)(root % 12u); gv.scale = (uint8_t)(scale % GV_NSC);
+    gv.prog = (uint8_t)prog; gv.rsrc = (uint8_t)(rsrc > 2u ? 0u : rsrc); gv.msrc = (uint8_t)(msrc > 1u ? 0u : msrc);
+}
+uint32_t gx_rhythm(uint32_t bars)                       /* -> the template taken (1..), or 256 + the base's motif */
+{
+    gv_set_rlen(bars * 16u); gv_gen_rhythm(); gx_rows();
+    return gv.tpl ? gv.tpl : 256u + gv.libk;
+}
+void gx_row(uint32_t r, uint32_t now)                   /* one row again; now = its first bar as it is (not to give it back) */
+{
+    r &= 7u; gv_rs_acc = 0; gv_rhythm_row_set(r, (uint16_t)now); gv_gen_row(r); gx_rows();
+}
+void gx_mel(uint32_t i, uint32_t bars) { i %= GV_NT; gv_set_tlen(i, bars * 16u); gv_gen_mel(i); gx_trk(i); }
+void gx_vary(uint32_t i, uint32_t bars, uint32_t bar)   /* the track as the page has it (gx_buf), its bar `bar` varied */
+{
+    uint32_t k, any = 0;
+    i %= GV_NT; gv.t[i].len = (uint8_t)gv_lenok(bars * 16u); gx_trk_in(i);
+    bar %= gv_tlen(i) / 16u;
+    for (k = 0; k < 16u; k++) any |= gv.t[i].st[bar * 16u + k].n >= 0;
+    if (any) gv_vary_bar(i, bar); else gv_gen_mel(i);
+    gx_trk(i);
+}
+
 #include "sim_demo.c"
 #include "sim_lab.c"

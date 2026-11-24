@@ -633,20 +633,25 @@ int main(void)
         shot("son_usr_drum");
         tap_btn(B_HOME);
     }
-    {   /* HOME: two short presses then a long one wipes the shown track; a long one alone still makes a new one */
-        uint32_t k, n = 0; uint8_t pg;
+    {   /* an OCT key held + HOME held wipes the shown track; HOME held alone still makes a new one */
+        uint32_t k, n = 0; uint8_t pg, gm;
         gv_am_clear(); if (gv_recq) tap_btn(B_REC);
         tap_btn(B_HOME); while (gu.page != GP_LIVE) tap_btn(B_HOME);
         run(FS); gv.sel = 8; gv.t[0].len = 32; gv_gen_mel(0); for (k = 0; k < 32u; k++) n += gv.t[0].st[k].n >= 0;
         check("the bass has notes over its two bars", n > 0);
-        pg = gu.page; tap_btn(B_HOME); tap_btn(B_HOME); check("two short presses: two pages on", gu.page != pg);
-        sim_btn(B_HOME, 1); run(FS / 2u); shot("hold_clr"); run(FS * 17u / 10u); sim_btn(B_HOME, 0); run(FS / 50u);
+        pg = gu.page; gm = gv.gmute;
+        sim_btn(B_OCTDN, 1); run(FS / 20u); sim_btn(B_HOME, 1); run(FS / 2u); shot("hold_clr"); run(FS * 17u / 10u); sim_btn(B_HOME, 0); run(FS / 50u); sim_btn(B_OCTDN, 0); run(FS / 50u);
         for (n = 0, k = 0; k < GV_MAXS; k++) n += gv.t[0].st[k].n >= 0;
-        check("then a long one: the bass is empty, back on the page it began on", n == 0 && gu.page == pg);
+        check("OCT- held + HOME held: the bass is empty, the page and the selection as they were", n == 0 && gu.page == pg && gv.sel == 8);
+        check("... and the rhythm OCT- cut on its way down plays again", gv.gmute == gm);
         run(FS); hold_btn(B_HOME); for (n = 0, k = 0; k < 32u; k++) n += gv.t[0].st[k].n >= 0;
-        check("a long press alone: a new melody", n > 0 && gu.page == pg);
-        gv.sel = 0; run(FS); tap_btn(B_HOME); tap_btn(B_HOME); hold_btn(B_HOME);
-        check("the same on the KICK: its row is empty, the KICK still shown", gv_rhythm_row_get(0) == 0 && gv.sel == 0);
+        check("HOME held alone: a new melody", n > 0 && gu.page == pg);
+        gv.sel = 0; run(FS / 4u);
+        sim_btn(B_OCTUP, 1); run(FS / 20u); sim_btn(B_HOME, 1); run(FS * 22u / 10u); sim_btn(B_HOME, 0); run(FS / 50u); sim_btn(B_OCTUP, 0); run(FS / 50u);
+        check("OCT+ held + HOME held on the KICK: its row is empty, the KICK still shown", gv_rhythm_row_get(0) == 0 && gv.sel == 0 && gv.gmute == gm);
+        sim_btn(B_OCTDN, 1); run(FS / 20u); tap_btn(B_HOME); sim_btn(B_OCTDN, 0); run(FS / 50u);
+        check("OCT- held, HOME let go early: no page turned", gu.page == pg);
+        gv.gmute = gm;
         gv_gen_rhythm(); gv.t[0].len = 16; gv_gen_mel(0);
     }
     {   /* REC: a played note keeps how long the key was held and where in the step it fell; a 1-bar knob move loops every bar */

@@ -108,6 +108,7 @@
     <label>Auto‑random<select id="auto"><option value="0">Off</option><option value="4">4 mesures</option><option value="8">8 mesures</option><option value="16">16 mesures</option><option value="32">32 mesures</option><option value="64">64 mesures</option><option value="128">128 mesures</option></select></label>
     <label title="Longueur du rythme : 1, 2 ou 4 mesures (16, 32 ou 64 pas). Un rythme généré remplit toutes ses mesures (A B A C)">Mesures<select id="rbars"><option value="1">1 (16 pas)</option><option value="2">2 (32 pas)</option><option value="4">4 (64 pas)</option></select></label>
     <span id="rbsel" class="seg" title="La mesure affichée et éditée dans la matrice"></span>
+    <label title="Qui invente les rythmes et les mélodies : le firmware de la machine lui-même (le Studio sort alors exactement ce que sort le FM-1) ou l’ancienne génération du Studio">Génération<select id="gsrc"><option value="fw">Machine (firmware)</option><option value="web">Studio</option></select> <small id="gsrcs"></small></label>
     <label title="D’où viennent « Rythme random » et l’auto-random : générés comme avant, ou piochés dans ta base de rythmes (MIDI importés)">Random pioche dans<select id="rsrc"><option value="gen">Génération</option><option value="db">Base de rythmes</option><option value="mix">Les deux</option></select></label>
   </div>
   <div id="bank"></div>
@@ -193,6 +194,7 @@
 <script src="icons.js"></script>
 <script src="midi.js"></script>
 <script src="lib.js"></script>
+<script src="fw.js"></script>
 <script src="app.js"></script>
 <script src="rdbpack.js"></script>
 <script src="rdb.js"></script>

@@ -107,6 +107,7 @@ function applyR(r){const s=styleOf(r);if(s&&s!==S.style&&s!==styleOf(cur()))setS
 function randomRhythm(){
   /* la source : génération (les modèles du style), la base de rythmes (MIDI importés), ou une fois l’une une fois l’autre */
   if(S.rsrc==='db'||(S.rsrc==='mix'&&(S.rmix=!S.rmix))){const e=typeof rdbPick==='function'&&rdbPick();if(e)return rdbGo(e,false);}
+  if(fwOn()){const r=fwRhythm();if(r)return go(r,true);}   /* la machine : le firmware tire le rythme (fw.js) */
   const list=STYLES[S.style].t;let p;do{p=pick(list);}while(list.length>1&&cur().name.endsWith(p.split('|')[0]));
   const[nm,hex]=p.split('|'),A=grid(hex),n=S.rbars||1,oth=()=>{const o=list.filter(x=>x!==p);return grid(pick(o.length?o:list).split('|')[1]);};
   /* 2 mesures : A B · 4 mesures : A B A C (d’autres modèles du style) */
@@ -115,7 +116,7 @@ function randomRhythm(){
 
 // Auto-random d'une seule ligne de batterie : elle prend le motif de cette ligne dans un autre modèle (du style en cours si possible)
 function randomRow(r){const cs=l=>l.map(p=>grid(p.split('|')[1])[r]).filter(a=>a.some(x=>x)),g=cur().g,now=g[r].map(x=>x?1:0).join(''),dif=a=>a.join('')!==now;
-  let c=cs(STYLES[S.style].t).filter(dif);if(!c.length)c=cs(Object.values(STYLES).flatMap(s=>s.t)).filter(dif);if(!c.length)return;
+  const fr=fwOn()&&fwRow(r);let c=fr?[fr]:cs(STYLES[S.style].t).filter(dif);if(!c.length)c=cs(Object.values(STYLES).flatMap(s=>s.t)).filter(dif);if(!c.length)return;
   g[r]=pick(c);delete LP['r'+r];
   document.querySelectorAll('#drums i[data-r="'+r+'"]').forEach(e=>{const cc=+e.dataset.c;e.className=(g[r][cc]?'n':'')+(cc%4?'':' b');});save();}
 
@@ -131,7 +132,9 @@ function showCh(){const p=prg();$('#chd').textContent=p?'· '+chName(p[playing?c
 function renderProg(){const P=PROGS[S.scale]||[];S.prog=Math.min(S.prog||0,P.length);
   $('#prog').innerHTML='<option value="0">Off · tonique fixe</option>'+P.map((p,k)=>`<option value="${k+1}"${k+1===S.prog?' selected':''}>${p.map(chName).join(' – ')}</option>`).join('');showCh();}
 // Générateur : rythmes calés sur les 16 pas + notes de l'accord (les degrés sont relatifs à l'accord de la mesure)
-function randomMel(i){if(bassBase(i))return;genBar(i,true);melBars(i);delete LP['t'+i];if(i===S.sel)renderRoll();save();}
+function randomMel(i){const fb=fwOn()&&fwMel(i);   /* la machine : sa mélodie, sa basse de la base, sur toutes les mesures */
+  if(fb){const tr=S.tracks[i];tr.bars=fb;tr.eb=0;tr.steps=fb[0];delete LP['t'+i];if(i===S.sel)renderRoll();save();return;}
+  if(bassBase(i))return;genBar(i,true);melBars(i);delete LP['t'+i];if(i===S.sel)renderRoll();save();}
 function genBar(i,quiet){const tr=S.tracks[i],L=SL(),ty=tr.type,P=SCP[S.scale]||SCP.Mineur,[t3,t5]=P.ch,
     st=Array.from({length:16},()=>({n:-1,a:0,s:0,o:0,l:1})),psy=ty==='bass'&&S.style==='psytrance';
   if(ty==='pad'){ /* nappe : l'accord tenu sur la mesure, ou sur deux demi-mesures */
@@ -161,6 +164,7 @@ function genBar(i,quiet){const tr=S.tracks[i],L=SL(),ty=tr.type,P=SCP[S.scale]||
 // Varier une mélodie : comme « Varier » pour le rythme, 3 ou 4 retouches dans la gamme, le motif reste reconnaissable
 function varyMel(i,quiet){const tr=S.tracks[i],L=SL(),mx=2*L,st=tr.steps,on=st.map((s,c)=>s.n>=0?c:-1).filter(c=>c>=0);
   if(!on.length)return quiet?0:randomMel(i);
+  if(!quiet&&fwOn()){const fb=fwVary(i);if(fb){const e=Math.min(tr.eb||0,fb.length-1);tr.bars=fb;tr.eb=e;tr.steps=fb[e];delete LP['t'+i];if(i===S.sel)renderRoll();save();return;}}
   for(let k=0;k<3+rnd(2);k++){const c=pick(on),s=st[c],r=Math.random();
     if(r<.6)s.n=Math.max(0,Math.min(mx,s.n+pick([-2,-1,1,2])));
     else if(r<.8){const e=st.findIndex((x,j)=>x.n<0&&j%2===0&&j>c);if(e>=0)st[e]={n:s.n,a:0,s:0,o:0,l:1};}
@@ -407,6 +411,7 @@ $('#del').onclick=()=>{if(S.rhythms.length<2)return msg('Il faut garder au moins
 $('#rname').oninput=e=>{cur().name=e.target.value;cur().tmp=false;renderBank();save();};
 $('#mrnd').onclick=()=>randomMel(S.sel);
 $('#rbars').onchange=e=>{setRBars(+e.target.value);e.target.blur();};$('#tbars').onchange=e=>{setTBars(+e.target.value);e.target.blur();};
+$('#gsrc').onchange=e=>{S.gen=e.target.value;e.target.blur();save();fwUI();msg(S.gen==='fw'?'Génération : celle de la machine (le firmware)':'Génération : celle du Studio');};
 $('#msrc').onchange=e=>{S.msrc=e.target.value;e.target.blur();save();msg(S.msrc==='base'?'Mélodies : les basses prennent les lignes de basse du style, les autres pistes sont générées':'Mélodies : génération dans la gamme, comme avant');};
 $('#rbsel').onclick=e=>{const k=e.target.dataset.rb;if(k==null)return;const r=fixR(cur());r.eb=+k;r.g=r.bars[r.eb];renderRhythm();save();};
 $('#tbsel').onclick=e=>{const k=e.target.dataset.tb;if(k==null)return;const t=fixT(T());t.eb=+k;t.steps=t.bars[t.eb];renderRoll();save();};

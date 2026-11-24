@@ -41,9 +41,8 @@ static struct {
     uint8_t hold_b;                 /* the button held for a long press (NB none) */
     uint32_t hold_t0, last_draw, flash, toast_t;
     uint32_t intro_t;               /* the power-on intro began then (0: over) */
-    uint8_t hold_done, hold_clr;    /* (hold_clr: two short presses came just before: the long one wipes the track) */
-    uint8_t tap_b, tap_n, tap_pg, tap_bt, tap_fx; int8_t tap_sel;   /* the short presses in a row of one button, the page before them */
-    uint32_t tap_t;
+    uint8_t hold_done;
+    uint8_t octm;                   /* LIVE: what the OCT keys still held have cut (OCT held + HOME held wipes a track: put back) */
     char toast[32];
     int8_t deg;                     /* the last degree played (a new melody step takes it) */
     uint8_t fxt, fxpg;              /* FX LIVE: the target (0 rhythm, 1 all the melody, 2..7 a track), the page A..D */
@@ -1180,14 +1179,14 @@ static void gv_go(uint32_t b)
     if (gu.page == GP_LFX && b == B_HOME) gu.fxpg = 0;
     gu.dirty = 1;
 }
+static int gv_clr_held(void) { return (fm1_in.buttons & ((1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]))) != 0u; }
 static void gv_long(uint32_t b)
 {
-    if (b == B_HOME && gu.hold_clr) {   /* two short presses, then this long one: the shown track wiped */
+    if (b == B_HOME && gv_clr_held()) {              /* an OCT key held + HOME held: the shown track wiped */
         char m[GV_FMT_N];
-        gv.sel = gu.tap_sel;                          /* (the track shown before the two presses: LIVE RYT / MEL pick their own) */
         if (gv_isd()) { uint32_t bar; uint16_t ac = gv_rs_acc; gv_rs_acc = 0; for (bar = 0; bar < 4u; bar++) gv_row_setb((uint32_t)gv.sel, bar, 0); gv_rs_acc = ac; }
         else { fm1_irq_off(); gv_mel_wipe(gv_tr()); gv_note_off((uint32_t)gv.sel - 8u); fm1_irq_on(); }
-        gu.page = gu.tap_pg; gu.btn = gu.tap_bt; gu.fxpg = gu.tap_fx;   /* (the two short presses turned pages: back) */
+        gv.gmute ^= gu.octm; gu.octm = 0;             /* (the OCT key cut the rhythm / the melody on its way down: back) */
         gv_fmt(m, "EFFACE : %s", gv_name(gv.sel));
         gv_say(m);
     } else if (b == B_HOME) {
@@ -1258,13 +1257,12 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
                  (b == B_SAVE && gu.page != GP_SON && !GV_SNDP(gu.page));   /* (held 2 s: gv_long) */
         if (pressed & bit) {
             gu.dirty = 1;
-            if (lp) { gu.hold_b = (uint8_t)b; gu.hold_t0 = fm1_ms; gu.hold_done = 0;
-                gu.hold_clr = b == B_HOME && gu.tap_b == b && gu.tap_n >= 2u && fm1_ms - gu.tap_t < 600u; continue; }
-            gu.tap_n = 0;
+            if (lp) { gu.hold_b = (uint8_t)b; gu.hold_t0 = fm1_ms; gu.hold_done = 0; continue; }
+            if (b == B_OCTDN || b == B_OCTUP) gu.octm &= (uint8_t)~(b == B_OCTDN ? 1u : 2u);
             if (b == B_PLAY) play_press();
             else if (b == B_REC) gv_rec_toggle();
             else if ((b == B_OCTDN || b == B_OCTUP) && (gv_live_page() || gu.page == GP_LFX || gu.page == GP_MIXR)) {   /* LIVE: OCT- the rhythm, OCT+ the melody */
-                gv.gmute ^= b == B_OCTDN ? 1u : 2u;
+                gv.gmute ^= b == B_OCTDN ? 1u : 2u; gu.octm |= b == B_OCTDN ? 1u : 2u;
                 gv_say(b == B_OCTDN ? ((gv.gmute & 1u) ? "RYTHME COUPE" : "RYTHME RETABLI") : ((gv.gmute & 2u) ? "MELODIE COUPEE" : "MELODIE RETABLIE"));
             }
             else if ((b == B_OCTDN || b == B_OCTUP) && (gu.page == GP_SON || gu.page == GP_STY || gu.page == GP_VIS)) {   /* OCT- = keep, OCT+ = back */
@@ -1292,12 +1290,7 @@ static int gv_ui_input(uint32_t pressed, uint32_t notes, uint32_t now)
             if (!gu.hold_done && fm1_ms - gu.hold_t0 >= 2000u) { gu.hold_done = 1; gv_long(gu.hold_b); }
             gu.dirty = 1;
         } else {
-            if (!gu.hold_done) {                       /* a short press: the next page; counted (two, then a long one: wipe) */
-                if (gu.tap_n && gu.tap_b == gu.hold_b && fm1_ms - gu.tap_t < 600u) gu.tap_n++;
-                else { gu.tap_b = gu.hold_b; gu.tap_n = 1; gu.tap_pg = gu.page; gu.tap_bt = gu.btn; gu.tap_fx = gu.fxpg; gu.tap_sel = gv.sel; }
-                gu.tap_t = fm1_ms;
-                gv_go(gu.hold_b);
-            } else gu.tap_n = 0;
+            if (!gu.hold_done && !(gu.hold_b == B_HOME && gv_clr_held())) gv_go(gu.hold_b);   /* (OCT + HOME let go early: nothing) */
             gu.hold_b = NB;
         }
     }
@@ -2429,7 +2422,7 @@ static void gv_draw_body(void)
         G_R(6, 150, 228, 26, GC_P);
         G_F(6, 150, 228, 26, GC_Y);
         G_R(10, 168, p > 220 ? 220 : p, 5, GC_Y);
-        G_TC(120, 155, 1, gu.hold_clr ? "MAINTIENS : EFFACER LA PISTE" : gu.hold_b == B_HOME || gu.hold_b == B_SEQ ? "MAINTIENS : NOUVELLE GENERATION" : gu.hold_b == B_ARP ? "MAINTIENS : STYLE + TOUT REGENERER" : gu.hold_b == B_SAVE ? "MAINTIENS : GARDER DANS LA BANQUE" : "MAINTIENS : EFFETS A ZERO", GC_Y);
+        G_TC(120, 155, 1, gu.hold_b == B_HOME && gv_clr_held() ? "MAINTIENS : EFFACER LA PISTE" : gu.hold_b == B_HOME || gu.hold_b == B_SEQ ? "MAINTIENS : NOUVELLE GENERATION" : gu.hold_b == B_ARP ? "MAINTIENS : STYLE + TOUT REGENERER" : gu.hold_b == B_SAVE ? "MAINTIENS : GARDER DANS LA BANQUE" : "MAINTIENS : EFFETS A ZERO", GC_Y);
     } else if (fm1_ms < gu.toast_t) {
         G_R(6, 152, 228, 20, RGB(6, 16, 14));
         G_F(6, 152, 228, 20, GC_C);
