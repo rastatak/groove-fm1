@@ -983,9 +983,11 @@ static void gv_play_key(uint32_t key, int down)  /* JEU: key 0..26 from the left
         if (!gv_kp_held) { gv_note_off(i); gv_live_trk = 0xFF; gv_rec_end(); }
     }
 }
+static volatile int8_t gv_op1_sel = -1;          /* the track shown when OP1 (the first black key) went down: OP1 + HOME held wipes it */
 static void gv_keys_isr(uint32_t cur, uint32_t ch)
 {
     uint32_t k, req = gv_hit_req;
+    if (ch & cur & 2u) gv_op1_sel = gv.sel;       /* (on a drum row the key picks the KICK: the row before it is the one meant) */
     gv_hit_req = 0;
     for (k = 0; k < 8u; k++)
         if ((req >> k) & 1u) { track_t *t = &trk[GV_ROWTRK[k]]; { gv_live_hit = 1; drum_hit(t, 110); gv_live_hit = 0; } gv_hit_t[k] = song.tick; }
