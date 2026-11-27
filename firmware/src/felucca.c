@@ -129,6 +129,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 #endif
 #include "project.c"
 #include "groove_store.c"     /* Groove: its bank kept in flash */
+#include "groove_link.c"      /* Groove: the song, rhythm and melodies as the web Studio sends them (USB) */
 #if FELUCCA_OTA
 #include "ota.c"
 static uint32_t ota_now_ms(void) { return fm1_ms; }
@@ -208,6 +209,7 @@ static void ota_commit(const uint8_t *parm)
 #if __has_include("editor_sample.c")
 #include "editor_sample.c"           /* SMP_INFO .. SMP_RENAME: the user sample slots */
 #endif
+#include "editor_groove.c"           /* Groove link: GV_INFO .. GV_MEL_SET (the web Studio over USB) */
 #include "editor.c"                  /* framing, INFO .. WATCH, TEXT, pushes, the update-silence rule */
 #endif
 #if FELUCCA_CDC

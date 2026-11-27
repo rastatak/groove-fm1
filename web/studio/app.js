@@ -17,7 +17,7 @@ function seg(o,noRoll){const b=(k,n,v,l)=>`<button data-${k}="${n}"${v===n?' cla
   return `<div class="lbl" title="Boucle les N pas à partir de la dernière note jouée">Loop (pas)<span class="seg">${LPS.map(n=>b('lp',n,o.lp||0,n||'Off')).join('')}</span></div>`+(noRoll?'':`<div class="lbl" title="Rejoue la note plusieurs fois dans le pas, en écho">Roll<span class="seg">${RLS.map(n=>b('rl',n,o.rl||1,n>1?'×'+n:'Off')).join('')}</span></div>`);}
 
 async function doSave(){saveT=0;try{if(window.deskosia)await deskosia.store.set('projet',S);else localStorage.setItem('fm1groove',JSON.stringify(S));}catch(e){msg('Sauvegarde impossible : '+e.message);}}
-function save(){clearTimeout(saveT);saveT=setTimeout(doSave,700);}
+function save(){clearTimeout(saveT);saveT=setTimeout(doSave,700);if(typeof lkAuto==='function')lkAuto();}
 // Fermeture ou rechargement de la page : on enregistre tout de suite ce qui attendait
 ['pagehide','beforeunload'].forEach(ev=>window.addEventListener(ev,()=>{if(saveT){clearTimeout(saveT);doSave();}}));
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&saveT){clearTimeout(saveT);doSave();}});
@@ -411,6 +411,7 @@ $('#del').onclick=()=>{if(S.rhythms.length<2)return msg('Il faut garder au moins
 $('#rname').oninput=e=>{cur().name=e.target.value;cur().tmp=false;renderBank();save();};
 $('#mrnd').onclick=()=>randomMel(S.sel);
 $('#rbars').onchange=e=>{setRBars(+e.target.value);e.target.blur();};$('#tbars').onchange=e=>{setTBars(+e.target.value);e.target.blur();};
+lkInit();
 $('#gsrc').onchange=e=>{S.gen=e.target.value;e.target.blur();save();fwUI();msg(S.gen==='fw'?'Génération : celle de la machine (le firmware)':'Génération : celle du Studio');};
 $('#msrc').onchange=e=>{S.msrc=e.target.value;e.target.blur();save();msg(S.msrc==='base'?'Mélodies : les basses prennent les lignes de basse du style, les autres pistes sont générées':'Mélodies : génération dans la gamme, comme avant');};
 $('#rbsel').onclick=e=>{const k=e.target.dataset.rb;if(k==null)return;const r=fixR(cur());r.eb=+k;r.g=r.bars[r.eb];renderRhythm();save();};

@@ -58,6 +58,16 @@
     <span id="mSt"></span>
   </div>
   <div id="mRoute" class="bar"></div>
+  <h2>Liaison FM‑1 Groove <small>le morceau du Studio part dans la machine par le câble USB : tempo, gamme, rythme (1, 2 ou 4 mesures) et les 6 mélodies. Il faut le firmware Groove à jour, et Chrome ou Edge (ordinateur ou Android)</small></h2>
+  <div class="bar">
+    <button id="lkC" class="hot">🔗 Relier le FM‑1 Groove</button>
+    <button id="lkAll" title="Tempo, gamme, rythme et les 6 mélodies du Studio remplacent ceux de la machine">Tout envoyer ➜ FM‑1</button>
+    <button id="lkR" title="Le rythme affiché remplace celui de la machine">Rythme ➜ FM‑1</button>
+    <button id="lkM" title="La mélodie de la piste sélectionnée remplace celle de la machine">Mélodie ➜ FM‑1</button>
+    <button id="lkP" title="Le rythme, les mélodies et le tempo de la machine remplacent ceux du Studio">FM‑1 ➜ Studio</button>
+    <label class="ck" title="Chaque changement fait dans le Studio (random, notes, tempo…) part tout seul dans la machine"><input type="checkbox" id="lkA"> Suivre : envoyer à chaque changement</label>
+    <span id="lkSt"></span>
+  </div>
 </section>
 <section data-sec="live">
   <h2>LIVE <small>clic sur un pad = couper / relancer · jauge sous le pad = volume de la piste · S = solo (plusieurs possibles) · touches 1 à 8 = batterie, Maj + 1 à 8 = solo</small></h2>
@@ -195,6 +205,7 @@
 <script src="midi.js"></script>
 <script src="lib.js"></script>
 <script src="fw.js"></script>
+<script src="link.js"></script>
 <script src="app.js"></script>
 <script src="rdbpack.js"></script>
 <script src="rdb.js"></script>

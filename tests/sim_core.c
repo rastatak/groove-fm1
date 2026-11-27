@@ -225,5 +225,24 @@ void gx_vary(uint32_t i, uint32_t bars, uint32_t bar)   /* the track as the page
     gx_trk(i);
 }
 
+/* the Studio's link (web/studio/link.js) checked against the firmware's own bytes (groove_link.c), no USB: the
+ * request's arguments in gx_buf, n of them; the reply's data back in gx_buf: its length, or 4096 + the error */
+uint32_t gx_link(uint32_t cmd, uint32_t n)
+{
+    static uint8_t in[2 + 64 * 3 + 8];
+    int e = 0;
+    if (n > sizeof in) return 4096u + 1u;
+    memcpy(in, gx_out, n);
+    switch (cmd) {
+    case 0x30: gx_out[0] = 'G'; gx_out[1] = 'V'; gx_out[2] = GV_LK_VER; return 3u + gv_lk_song_get(gx_out + 3);
+    case 0x31: e = gv_lk_song_set(in, n); return e ? 4096u + (uint32_t)e : gv_lk_song_get(gx_out);
+    case 0x32: return gv_lk_ryt_get(gx_out);
+    case 0x33: e = gv_lk_ryt_set(in, n); if (!e) gx_out[0] = in[0]; return e ? 4096u + (uint32_t)e : 1u;
+    case 0x34: return n == 1u && in[0] < GV_NT ? gv_lk_mel_get(in[0], gx_out) : 4096u + 2u;
+    case 0x35: e = gv_lk_mel_set(in, n); if (!e) { gx_out[0] = in[0]; gx_out[1] = in[1]; } return e ? 4096u + (uint32_t)e : 2u;
+    default: return 4096u + 3u;
+    }
+}
+
 #include "sim_demo.c"
 #include "sim_lab.c"

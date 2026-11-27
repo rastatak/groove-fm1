@@ -2,6 +2,15 @@
  * Groove on the simulator (tools/build_sim.sh): boots into Groove, plays, the pages draw, the keys and knobs act.
  * Writes build/sim/groove_*.ppm (the screens) and build/sim/groove.wav (a few bars) to look at and listen to. */
 #include "sim_core.c"
+/* the editor's hook for the Groove link (firmware/src/editor_groove.c) with the editor's framing stood in: what it
+ * replies, byte for byte (the real framing and USB path: tests/editor_test.c, without Groove) */
+#include "../firmware/src/editor_proto.h"
+static uint8_t lk_out[512]; static uint32_t lk_n, lk_sent, lk_failrc, lk_faild;
+static void ed_reply(uint32_t cmd, uint32_t rc) { lk_out[0] = (uint8_t)cmd; lk_out[1] = (uint8_t)rc; lk_n = 2; }
+static void ed_b(uint32_t v) { if (lk_n < sizeof lk_out) lk_out[lk_n++] = (uint8_t)(v & 0x7Fu); }
+static void ed_send(void) { lk_sent++; }
+static void ed_fail(uint32_t cmd, uint32_t rc, uint32_t detail, const char *msg) { (void)msg; lk_out[0] = (uint8_t)cmd; lk_n = 2; lk_out[1] = (uint8_t)rc; lk_failrc = rc; lk_faild = detail; lk_sent++; }
+#include "../firmware/src/editor_groove.c"
 #include <stdio.h>
 #include <math.h>
 
@@ -679,6 +688,35 @@ int main(void)
           check("REC cut after one bar: the knob's lane has no hole", full);
           check("... and the bar repeats in the 3 others", a && a->v[4] == a->v[20] && a->v[4] == a->v[52] && a->v[2] != a->v[11]); }
         gv_am_clear(); gv_gen_mel(0);
+    }
+    {   /* the Studio's link: the rhythm and a melody read, changed, sent back, read again: the same; refusals change nothing */
+        static uint8_t a[256], b[256]; uint32_t n, k, m; uint16_t r0;
+        check("GV_INFO: 'G' 'V', version 1, the song", ed_groove_cmd(0x30, a, 0) == 1 && lk_out[1] == 0 && lk_out[2] == 'G' && lk_out[3] == 'V' && lk_out[4] == 1 && lk_n == 2u + 3u + GV_LK_SONG_N && lk_out[5] == gv.style);
+        check("a command that is not the link's: left to the editor", ed_groove_cmd(0x01, a, 0) == 0 && ed_groove_cmd(0x36, a, 0) == 0);
+        gv_set_rlen(32); gv_gen_rhythm();
+        n = gv_lk_ryt_get(a); check("the rhythm on 2 bars: 1 + 2 x 48 bytes, all 7-bit", n == 97u && a[0] == 2u);
+        for (k = 0, m = 0; k < n; k++) m |= a[k] & 0x80u; check("... every byte under 128", !m);
+        r0 = gv_row_getb(0, 1); gv_rhythm_row_set(0, 0); gv_set_rlen(16);
+        check("GV_RYT_SET takes it: the kick's second bar back, 2 bars", ed_groove_cmd(0x33, a, n) == 1 && lk_out[1] == 0 && lk_out[2] == 2 && gv_rlen() == 32u && gv_row_getb(0, 1) == r0);
+        m = gv_lk_ryt_get(b); check("read again: the same bytes", m == n && !memcmp(a, b, n));
+        { uint8_t acc[49]; memset(acc, 0, sizeof acc); acc[0] = 1; gv_lk_p16(acc + 1, 0x8888u); gv_lk_p16(acc + 4, 0x0808u);
+          check("a 1-bar rhythm with accents", gv_lk_ryt_set(acc, 49) == 0 && gv_rlen() == 16u && gv_row_getb(0, 0) == 0x8888u && trk[GV_ROWTRK[0]].step[4].acc && !trk[GV_ROWTRK[0]].step[0].acc);
+          m = gv_lk_ryt_get(b); check("... read back with them", m == 49u && !memcmp(acc, b, 49)); }
+        a[0] = 3; lk_failrc = 0; check("3 bars: refused (OUT OF RANGE), nothing changed", ed_groove_cmd(0x33, a, 145) == 1 && lk_failrc == ED_E_BAD && lk_faild == ED_D_RANGE && gv_rlen() == 16u);
+        a[0] = 2; lk_failrc = 0; check("a wrong length: refused (BAD LENGTH)", ed_groove_cmd(0x33, a, 96) == 1 && lk_faild == ED_D_LENGTH && gv_rlen() == 16u);
+        gv.t[2].len = 64; gv_gen_mel(2); gv.t[2].st[5].n = 7; gv.t[2].st[5].l4 = 13; gv.t[2].st[5].o4 = 2; gv.t[2].st[5].a = 1; gv.t[2].st[5].s = 1;
+        a[0] = 2; check("GV_MEL_GET track 3: 2 + 64 x 3 bytes", ed_groove_cmd(0x34, a, 1) == 1 && lk_out[1] == 0 && lk_n == 2u + 2u + 192u && lk_out[2] == 2 && lk_out[3] == 4);
+        memcpy(a, lk_out + 2, 194); gv_mel_wipe(&gv.t[2]); gv.t[2].len = 16;
+        check("GV_MEL_SET gives it back: 64 steps, the step's length, lateness, accent and slide", ed_groove_cmd(0x35, a, 194) == 1 && lk_out[1] == 0 && gv.t[2].len == 64 && gv.t[2].st[5].n == 7 && gv.t[2].st[5].l4 == 13 && gv.t[2].st[5].o4 == 2 && gv.t[2].st[5].a && gv.t[2].st[5].s);
+        m = gv_lk_mel_get(2, b); check("read again: the same bytes", m == 194u && !memcmp(a, b, 194));
+        a[2 + 3 * 9] = 40; lk_faild = 0; check("a degree out of range: refused, the track untouched", ed_groove_cmd(0x35, a, 194) == 1 && lk_faild == ED_D_RANGE && gv.t[2].st[5].n == 7);
+        a[0] = 6; check("track 7: refused", gv_lk_mel_set(a, 194) == 2);
+        { uint8_t sg[6] = {3, 150 & 0x7F, 150 >> 7, 5, GV_LK_KEEP, GV_LK_KEEP}; uint8_t sc = gv.scale;
+          check("GV_SONG: style 4, 150 BPM, root 5, the scale kept", ed_groove_cmd(0x31, sg, 6) == 1 && lk_out[1] == 0 && gv.style == 3 && song.g[G_BPM] == 150 && gv.root == 5 && gv.scale == sc && lk_out[2] == 3);
+          sg[1] = 10; sg[2] = 0; check("10 BPM: refused", gv_lk_song_set(sg, 6) == 2 && song.g[G_BPM] == 150); }
+        gv_on = 0; lk_failrc = 0; check("Hortator's side showing: NOT IN GROOVE", ed_groove_cmd(0x30, a, 0) == 1 && lk_failrc == ED_E_REFUSED); gv_on = 1;
+        check("the writes are known as writes (a retry is not done twice)", ed_groove_write(0x31) && ed_groove_write(0x33) && ed_groove_write(0x35) && !ed_groove_write(0x30) && !ed_groove_write(0x32));
+        gv.t[2].len = 16; gv_set_rlen(16); gv_set_style(0); gv_gen_all();
     }
     /* GLO, key 16: Hortator; ENV+ARP: back */
     tap_btn(B_GLO); tap_key(STEP_KEY[15]);

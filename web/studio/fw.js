@@ -24,4 +24,4 @@ function fwUI(){const e=document.getElementById('gsrc'),s=document.getElementByI
     const x=(await WebAssembly.instantiate(mod,imp)).exports;if(!x.gx_boot){fwErr='firmware trop ancien';continue;}
     if(!x.gx_boot((Math.random()*4294967295)>>>0||1)){fwErr='démarrage';continue;}
     FW=x;fwErr='';break;}catch(e){fwErr='chargement';}}
-  const go=()=>{if(typeof S==='undefined'||!S)return setTimeout(go,200);fwUI();};go();})();
+  const go=()=>{if(typeof S==='undefined'||!S)return setTimeout(go,200);fwUI();if(typeof lkUI==='function')lkUI();};go();})();

@@ -596,7 +596,11 @@ static int ed_is_write(uint32_t cmd)
 {
     return cmd == ED_SET || cmd == ED_SELECT || cmd == ED_PRESET_LOAD || cmd == ED_STEPS_SET || cmd == ED_LOCK_EDIT ||
            cmd == ED_CUE || cmd == ED_SAVE || cmd == ED_RESTORE || cmd == ED_SMP_BEGIN || cmd == ED_SMP_DATA ||
-           cmd == ED_SMP_END || cmd == ED_SMP_CLEAR || cmd == ED_SMP_RENAME;
+           cmd == ED_SMP_END || cmd == ED_SMP_CLEAR || cmd == ED_SMP_RENAME
+#ifdef ED_HAS_GROOVE
+           || ed_groove_write(cmd)        /* Groove link (editor_groove.c) */
+#endif
+           ;
 }
 static void ed_dispatch(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
@@ -606,6 +610,10 @@ static void ed_dispatch(uint32_t cmd, const uint8_t *a, uint32_t n)
 #endif
 #ifdef ED_HAS_SAMPLES
     if (ed_sample_cmd(cmd, a, n))          /* (and an upload) */
+        return;
+#endif
+#ifdef ED_HAS_GROOVE
+    if (ed_groove_cmd(cmd, a, n))          /* Groove link: the web Studio's song, rhythm and melodies */
         return;
 #endif
     switch (cmd) {
